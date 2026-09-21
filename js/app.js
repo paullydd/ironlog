@@ -221,6 +221,7 @@ function renderHome() {
   }
 
   html += `<div class="section-title">Or</div>`;
+  html += `<button class="btn btn-secondary" style="margin-bottom:10px;" onclick="openMixItUpSheet()">🎲 Try Something New</button>`;
   html += `<button class="btn btn-secondary" onclick="startQuickWorkout()">⚡ Quick Workout (no routine)</button>`;
 
   html += `</div>`;
@@ -243,6 +244,104 @@ function startQuickWorkout() {
     Store.cancelWorkout();
   }
   Store.startWorkout(null);
+  navigate("#/workout");
+}
+
+// ---------- Mix It Up (generated session) ----------
+let mixItUpState = null;
+
+function openMixItUpSheet() {
+  const { group, daysAgo } = getLeastRecentMuscleGroup();
+  mixItUpState = { focus: group || "Full Body", goal: "hypertrophy", suggestedGroup: group, daysAgo, session: null };
+  openSheet(renderMixItUpSelectSheet());
+}
+
+function renderMixItUpSelectSheet() {
+  const s = mixItUpState;
+  let html = `
+    <h2>🎲 Try Something New</h2>
+    <p class="text-dim" style="margin-bottom:14px;">Get a fresh session with weights suggested from your lift history.</p>`;
+  if (s.suggestedGroup && s.daysAgo !== null && s.daysAgo >= 5) {
+    html += `<p class="text-dim" style="margin-bottom:14px;">💡 You haven't trained <strong style="color:var(--text);">${escapeHtml(s.suggestedGroup)}</strong> in ${s.daysAgo} day${s.daysAgo === 1 ? "" : "s"} — maybe start there?</p>`;
+  }
+  html += `<label style="display:block;font-size:13px;font-weight:600;color:var(--text-dim);margin-bottom:6px;">Focus</label>`;
+  html += `<div class="chip-row" style="flex-wrap:wrap;overflow-x:visible;margin-bottom:14px;">`;
+  html += ["Full Body", ...GENERATOR_MUSCLE_GROUPS]
+    .map((g) => `<button class="chip ${s.focus === g ? "chip-active" : ""}" onclick="selectMixItUpFocus('${g}')">${escapeHtml(g)}</button>`)
+    .join("");
+  html += `</div>`;
+  html += `<label style="display:block;font-size:13px;font-weight:600;color:var(--text-dim);margin-bottom:6px;">Goal</label>`;
+  html += `<div class="chip-row" style="flex-wrap:wrap;overflow-x:visible;margin-bottom:18px;">`;
+  html += Object.keys(GOAL_PRESETS)
+    .map((key) => `<button class="chip ${s.goal === key ? "chip-active" : ""}" onclick="selectMixItUpGoal('${key}')">${GOAL_PRESETS[key].label}</button>`)
+    .join("");
+  html += `</div>`;
+  html += `<button class="btn btn-primary" onclick="renderMixItUpPreview()">Generate Session</button>`;
+  return html;
+}
+
+function selectMixItUpFocus(focus) {
+  mixItUpState.focus = focus;
+  document.getElementById("sheet-content").innerHTML = renderMixItUpSelectSheet();
+}
+
+function selectMixItUpGoal(goal) {
+  mixItUpState.goal = goal;
+  document.getElementById("sheet-content").innerHTML = renderMixItUpSelectSheet();
+}
+
+function renderMixItUpPreview() {
+  mixItUpState.session = generateSession(mixItUpState.focus, mixItUpState.goal, 5);
+  document.getElementById("sheet-content").innerHTML = renderMixItUpPreviewSheet();
+}
+
+function shuffleMixItUpSession() {
+  renderMixItUpPreview();
+}
+
+function renderMixItUpPreviewSheet() {
+  const s = mixItUpState;
+  const u = unit();
+  let html = `<h2>🎲 ${escapeHtml(s.focus)} — ${GOAL_PRESETS[s.goal].label}</h2>`;
+  html += `<p class="text-dim" style="margin-bottom:14px;">Suggested from your lift history — adjust anything once you start.</p>`;
+  s.session.forEach((item) => {
+    const ex = item.exercise;
+    const sug = item.suggestion;
+    let line;
+    if (sug.confidence === "bodyweight") line = `Bodyweight × ${sug.reps}`;
+    else if (sug.confidence === "unknown") line = `${sug.reps} reps — no history yet`;
+    else line = `${sug.weight}${u} × ${sug.reps}${sug.confidence === "estimated" ? " (est.)" : ""}`;
+    html += `
+      <div class="routine-exercise-row">
+        <span>${getExerciseIcon(ex.name, ex.muscleGroup)} ${escapeHtml(ex.name)}</span>
+        <span class="text-dim" style="font-size:12px;white-space:nowrap;">${line}</span>
+      </div>`;
+  });
+  html += `
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn btn-secondary" style="width:auto;flex:1;" onclick="shuffleMixItUpSession()">🔄 Shuffle</button>
+      <button class="btn btn-primary" style="width:auto;flex:2;" onclick="startGeneratedWorkout()">Start Workout</button>
+    </div>`;
+  return html;
+}
+
+function startGeneratedWorkout() {
+  const s = mixItUpState;
+  if (Store.state.activeWorkout) {
+    if (!confirm("You already have a workout in progress. Discard it and start a new one?")) return;
+    Store.cancelWorkout();
+  }
+  Store.startWorkout(null);
+  Store.state.activeWorkout.routineName = `🎲 ${s.focus} Session`;
+  s.session.forEach((item) => {
+    const ex = item.exercise.id ? Store.getExercise(item.exercise.id) : Store.addExercise(item.exercise.name, item.exercise.muscleGroup);
+    Store.addExerciseToActiveWorkout(ex);
+    const activeEx = Store.state.activeWorkout.exercises.find((e) => e.exerciseId === ex.id);
+    const sug = item.suggestion;
+    activeEx.sets.push({ weight: sug.weight, reps: sug.reps });
+  });
+  Store.save();
+  closeSheet();
   navigate("#/workout");
 }
 
