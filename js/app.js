@@ -1092,10 +1092,19 @@ function toggleCardioSetDone(exerciseId, index) {
   refreshWorkoutView();
 }
 
+function nextRampWeight(prevWeight) {
+  return Number(prevWeight) + Number(Store.state.settings.weightIncrement || 5);
+}
+
 function getAddSetLabel(ex, last) {
   if (ex.sets.length > 0) {
     const prev = ex.sets[ex.sets.length - 1];
-    if (prev.weight !== "" && prev.reps !== "") return `🔁 Repeat Last Set (${prev.weight}${unit()}×${prev.reps})`;
+    if (prev.weight !== "" && prev.reps !== "") {
+      if (Store.state.settings.autoIncrementWeight) {
+        return `📈 Add Set (${nextRampWeight(prev.weight)}${unit()}×${prev.reps})`;
+      }
+      return `🔁 Repeat Last Set (${prev.weight}${unit()}×${prev.reps})`;
+    }
     return "+ Add Set";
   }
   const lastSet = last && last.sets[0];
@@ -1195,7 +1204,8 @@ function addSetRow(exerciseId) {
   if (!ex) return;
   if (ex.sets.length > 0) {
     const prev = ex.sets[ex.sets.length - 1];
-    ex.sets.push({ weight: prev.weight, reps: prev.reps });
+    const useRamp = Store.state.settings.autoIncrementWeight && prev.weight !== "" && prev.weight != null;
+    ex.sets.push({ weight: useRamp ? nextRampWeight(prev.weight) : prev.weight, reps: prev.reps });
   } else {
     const last = Store.getLastPerformance(exerciseId);
     const lastSet = last && last.sets[0];
@@ -2333,6 +2343,26 @@ function renderSettings() {
         </div>
       </div>
 
+      <div class="section-title">Set Progression</div>
+      <div class="card">
+        <div class="row-between" style="margin-bottom:${Store.state.settings.autoIncrementWeight ? "12px" : "0"};">
+          <span>📈 Ramp up weight each set</span>
+          <button class="btn btn-small ${Store.state.settings.autoIncrementWeight ? "btn-primary" : "btn-secondary"}" style="width:auto;display:inline-flex;" onclick="toggleAutoIncrementWeight()">${Store.state.settings.autoIncrementWeight ? "On" : "Off"}</button>
+        </div>
+        ${
+          Store.state.settings.autoIncrementWeight
+            ? `<div class="row-between">
+                <span class="text-dim" style="font-size:13px;">Increase by</span>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <button class="stepper-btn" onclick="adjustWeightIncrementSetting(-2.5)">−</button>
+                  <span style="font-weight:700;min-width:50px;text-align:center;">${Store.state.settings.weightIncrement}${u}</span>
+                  <button class="stepper-btn" onclick="adjustWeightIncrementSetting(2.5)">+</button>
+                </div>
+              </div>`
+            : `<p class="text-dim" style="font-size:12px;">When on, "+ Add Set" bumps the weight up automatically instead of repeating your last set — handy for a pyramid-style ramp (e.g. 25×12, 30×12, 35×10).</p>`
+        }
+      </div>
+
       <div class="section-title">Planning</div>
       <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="navigate('#/schedule')">📅 Weekly Schedule</button>
 
@@ -2364,6 +2394,17 @@ function setUnit(u) {
 function adjustRestDurationSetting(delta) {
   const next = Math.max(15, (Store.state.settings.restDuration || 90) + delta);
   Store.setRestDuration(next);
+  document.getElementById("view-root").innerHTML = renderSettings();
+}
+
+function toggleAutoIncrementWeight() {
+  Store.setAutoIncrementWeight(!Store.state.settings.autoIncrementWeight);
+  document.getElementById("view-root").innerHTML = renderSettings();
+}
+
+function adjustWeightIncrementSetting(delta) {
+  const next = Math.max(2.5, (Number(Store.state.settings.weightIncrement) || 5) + delta);
+  Store.setWeightIncrement(next);
   document.getElementById("view-root").innerHTML = renderSettings();
 }
 

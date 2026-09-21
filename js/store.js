@@ -44,7 +44,7 @@ function defaultState() {
     activeWorkout: null,
     // Keyed by JS Date.getDay() (0=Sun..6=Sat) -> a routine id, "rest", or absent (unset).
     schedule: {},
-    settings: { unit: "lbs", restDuration: 90 },
+    settings: { unit: "lbs", restDuration: 90, autoIncrementWeight: false, weightIncrement: 5 },
   };
 }
 
@@ -325,6 +325,16 @@ const Store = {
 
   setRestDuration(seconds) {
     this.state.settings.restDuration = seconds;
+    this.save();
+  },
+
+  setAutoIncrementWeight(enabled) {
+    this.state.settings.autoIncrementWeight = enabled;
+    this.save();
+  },
+
+  setWeightIncrement(amount) {
+    this.state.settings.weightIncrement = amount;
     this.save();
   },
 };
