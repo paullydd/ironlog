@@ -10,11 +10,29 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
     const parsed = JSON.parse(raw);
-    return { ...defaultState(), ...parsed };
+    const state = { ...defaultState(), ...parsed };
+    migrateRoutineCategories(state);
+    return state;
   } catch (e) {
     console.error("Failed to load state, starting fresh", e);
     return defaultState();
   }
+}
+
+// Guesses a reasonable category from a routine name (e.g. "Day One Bulk" ->
+// Bulk) instead of leaving everything uncategorized — used both to migrate
+// routines saved before categories existed and for routines created fresh
+// by the Strong CSV importer.
+function guessRoutineCategory(name) {
+  if (/bulk/i.test(name)) return "Bulk";
+  if (/^day (one|two|three|four|five|six)\b/i.test(name.trim())) return "Shred";
+  return "General";
+}
+
+function migrateRoutineCategories(state) {
+  state.routines.forEach((r) => {
+    if (!r.category) r.category = guessRoutineCategory(r.name);
+  });
 }
 
 function defaultState() {
@@ -51,11 +69,26 @@ const Store = {
   },
 
   // ----- Routines -----
-  addRoutine(name, exerciseIds) {
-    const routine = { id: uid(), name: name.trim(), exerciseIds: exerciseIds || [], createdAt: Date.now() };
+  addRoutine(name, exerciseIds, category) {
+    const routine = {
+      id: uid(),
+      name: name.trim(),
+      exerciseIds: exerciseIds || [],
+      category: (category || "General").trim() || "General",
+      createdAt: Date.now(),
+    };
     this.state.routines.push(routine);
     this.save();
     return routine;
+  },
+
+  getRoutineCategories() {
+    const cats = new Set(this.state.routines.map((r) => r.category || "General"));
+    return Array.from(cats).sort((a, b) => {
+      if (a === "General") return 1;
+      if (b === "General") return -1;
+      return a.localeCompare(b);
+    });
   },
 
   updateRoutine(id, updates) {

@@ -161,8 +161,8 @@ function renderHome() {
       <div class="stat"><span class="num">${totalHours}h</span><span class="label">Time Logged</span></div>
     </div>`;
 
-  html += `<div class="section-title">Your Routines</div>`;
   if (routines.length === 0) {
+    html += `<div class="section-title">Your Routines</div>`;
     html += `
       <div class="empty-state">
         <span class="big-icon">🏋️</span>
@@ -170,16 +170,22 @@ function renderHome() {
       </div>
       <button class="btn btn-primary" onclick="navigate('#/routine-edit/new')">+ Create a Routine</button>`;
   } else {
-    routines.forEach((r) => {
-      html += `
-        <div class="card routine-card">
-          <div class="info card-tap" style="flex:1" onclick="navigate('#/routine-edit/${r.id}')">
-            <h3>${escapeHtml(r.name)}</h3>
-            <p>${r.exerciseIds.length} exercise${r.exerciseIds.length === 1 ? "" : "s"}</p>
-          </div>
-          <button class="btn btn-primary btn-small" style="width:auto;flex-shrink:0;" onclick="startWorkoutFromRoutine('${r.id}')">Start</button>
-        </div>`;
-    });
+    const grouped = groupRoutinesByCategory(routines);
+    Object.keys(grouped)
+      .sort(categorySortOrder)
+      .forEach((cat) => {
+        html += `<div class="section-title">${escapeHtml(cat)}</div>`;
+        grouped[cat].forEach((r) => {
+          html += `
+            <div class="card routine-card">
+              <div class="info card-tap" style="flex:1" onclick="navigate('#/routine-edit/${r.id}')">
+                <h3>${escapeHtml(r.name)}</h3>
+                <p>${r.exerciseIds.length} exercise${r.exerciseIds.length === 1 ? "" : "s"}</p>
+              </div>
+              <button class="btn btn-primary btn-small" style="width:auto;flex-shrink:0;" onclick="startWorkoutFromRoutine('${r.id}')">Start</button>
+            </div>`;
+        });
+      });
   }
 
   html += `<div class="section-title">Or</div>`;
@@ -209,8 +215,27 @@ function startQuickWorkout() {
 }
 
 // ---------- Routines list ----------
+function groupRoutinesByCategory(routines) {
+  const groups = {};
+  routines.forEach((r) => {
+    const cat = r.category || "General";
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(r);
+  });
+  return groups;
+}
+
+function categorySortOrder(a, b) {
+  if (a === "General") return 1;
+  if (b === "General") return -1;
+  return a.localeCompare(b);
+}
+
+let routinesFilter = "All";
+
 function renderRoutines() {
   const routines = Store.state.routines;
+  const categories = Store.getRoutineCategories();
   let html = `
     <div class="topbar">
       <h1>Routines</h1>
@@ -225,19 +250,57 @@ function renderRoutines() {
         <p>No routines yet. Build your split so you can track the same exercises each time.</p>
       </div>
       <button class="btn btn-primary" onclick="navigate('#/routine-edit/new')">+ Create a Routine</button>`;
-  } else {
-    routines.forEach((r) => {
-      html += `
-        <div class="card routine-card card-tap" onclick="navigate('#/routine-edit/${r.id}')">
-          <div class="info">
-            <h3>${escapeHtml(r.name)}</h3>
-            <p>${r.exerciseIds.length} exercise${r.exerciseIds.length === 1 ? "" : "s"}</p>
-          </div>
-          <span style="color:var(--text-faint);font-size:20px;">›</span>
-        </div>`;
-    });
+    html += `</div>`;
+    return html;
   }
+
+  if (categories.length > 1) {
+    if (!categories.includes(routinesFilter)) routinesFilter = "All";
+    html += `<div class="chip-row" id="routine-filter-chips">${renderCategoryChips(categories)}</div>`;
+  } else {
+    routinesFilter = "All";
+  }
+
+  html += `<div id="routines-list">${renderRoutinesList(routines)}</div>`;
   html += `</div>`;
+  return html;
+}
+
+function renderCategoryChips(categories) {
+  const all = ["All", ...categories];
+  return all
+    .map((cat) => {
+      const active = routinesFilter === cat ? "chip-active" : "";
+      return `<button class="chip ${active}" onclick="setRoutinesFilter('${escapeHtml(cat).replace(/'/g, "\\'")}')">${escapeHtml(cat)}</button>`;
+    })
+    .join("");
+}
+
+function setRoutinesFilter(cat) {
+  routinesFilter = cat;
+  document.getElementById("routine-filter-chips").innerHTML = renderCategoryChips(Store.getRoutineCategories());
+  document.getElementById("routines-list").innerHTML = renderRoutinesList(Store.state.routines);
+}
+
+function renderRoutinesList(routines) {
+  const filtered = routinesFilter === "All" ? routines : routines.filter((r) => (r.category || "General") === routinesFilter);
+  const grouped = groupRoutinesByCategory(filtered);
+  let html = "";
+  Object.keys(grouped)
+    .sort(categorySortOrder)
+    .forEach((cat) => {
+      if (routinesFilter === "All") html += `<div class="section-title">${escapeHtml(cat)}</div>`;
+      grouped[cat].forEach((r) => {
+        html += `
+          <div class="card routine-card card-tap" onclick="navigate('#/routine-edit/${r.id}')">
+            <div class="info">
+              <h3>${escapeHtml(r.name)}</h3>
+              <p>${r.exerciseIds.length} exercise${r.exerciseIds.length === 1 ? "" : "s"}</p>
+            </div>
+            <span style="color:var(--text-faint);font-size:20px;">›</span>
+          </div>`;
+      });
+    });
   return html;
 }
 
@@ -255,6 +318,7 @@ function renderRoutineEdit(id) {
   routineEditState = {
     id: isNew ? null : routine.id,
     name: routine ? routine.name : "",
+    category: routine ? routine.category || "General" : "",
     exerciseIds: routine ? [...routine.exerciseIds] : [],
   };
 
@@ -272,6 +336,17 @@ function renderRoutineEditView() {
       <div class="field">
         <label>Routine Name</label>
         <input type="text" id="routine-name-input" placeholder="e.g. Push Day" value="${escapeHtml(s.name)}" />
+      </div>
+      <div class="field">
+        <label>Category</label>
+        <input type="text" id="routine-category-input" list="routine-category-options" placeholder="e.g. Shred, Bulk" value="${escapeHtml(s.category)}" />
+        <datalist id="routine-category-options">
+          ${Store.getRoutineCategories()
+            .concat(["Shred", "Bulk", "General"])
+            .filter((c, i, arr) => arr.indexOf(c) === i)
+            .map((c) => `<option value="${escapeHtml(c)}"></option>`)
+            .join("")}
+        </datalist>
       </div>
       <div class="section-title">Exercises</div>
       <div id="routine-exercise-list">${renderRoutineExerciseRows()}</div>
@@ -316,11 +391,13 @@ function saveRoutine() {
     nameInput.focus();
     return;
   }
+  const categoryInput = document.getElementById("routine-category-input");
+  const category = categoryInput.value.trim() || "General";
   const s = routineEditState;
   if (s.id) {
-    Store.updateRoutine(s.id, { name, exerciseIds: s.exerciseIds });
+    Store.updateRoutine(s.id, { name, category, exerciseIds: s.exerciseIds });
   } else {
-    Store.addRoutine(name, s.exerciseIds);
+    Store.addRoutine(name, s.exerciseIds, category);
   }
   toast("Routine saved");
   navigate("#/routines");

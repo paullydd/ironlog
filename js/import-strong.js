@@ -163,7 +163,7 @@ function importStrongData(text) {
         if (!existing.exerciseIds.includes(id)) existing.exerciseIds.push(id);
       });
     } else {
-      Store.addRoutine(routineName, exerciseIds);
+      Store.addRoutine(routineName, exerciseIds, guessRoutineCategory(routineName));
       routinesCreated++;
     }
   });
