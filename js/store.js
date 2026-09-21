@@ -42,6 +42,8 @@ function defaultState() {
     workouts: [],
     bodyweightLogs: [],
     activeWorkout: null,
+    // Keyed by JS Date.getDay() (0=Sun..6=Sat) -> a routine id, "rest", or absent (unset).
+    schedule: {},
     settings: { unit: "lbs" },
   };
 }
@@ -101,11 +103,28 @@ const Store = {
 
   deleteRoutine(id) {
     this.state.routines = this.state.routines.filter((r) => r.id !== id);
+    Object.keys(this.state.schedule).forEach((day) => {
+      if (this.state.schedule[day] === id) delete this.state.schedule[day];
+    });
     this.save();
   },
 
   getRoutine(id) {
     return this.state.routines.find((r) => r.id === id);
+  },
+
+  // ----- Weekly schedule -----
+  setScheduleDay(day, value) {
+    if (value === null || value === undefined) {
+      delete this.state.schedule[day];
+    } else {
+      this.state.schedule[day] = value;
+    }
+    this.save();
+  },
+
+  getScheduleDay(day) {
+    return this.state.schedule[day] || null;
   },
 
   // ----- Active workout -----

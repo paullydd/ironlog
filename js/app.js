@@ -106,6 +106,9 @@ function render() {
     case "progress":
       root.innerHTML = renderProgress();
       break;
+    case "schedule":
+      root.innerHTML = renderSchedule();
+      break;
     case "settings":
       root.innerHTML = renderSettings();
       break;
@@ -167,6 +170,8 @@ function renderHome() {
         </div>
       </div>`;
   }
+
+  html += renderTodayCard();
 
   html += `
     <div class="stat-row">
@@ -1397,6 +1402,110 @@ function deleteBodyweightEntryConfirm(id) {
   document.getElementById("view-root").innerHTML = renderProgress();
 }
 
+// ---------- Weekly schedule ----------
+const DAY_NAMES = { 0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday" };
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Monday first
+
+function renderSchedule() {
+  let html = `
+    <div class="topbar"><button class="back" onclick="navigate('#/settings')">‹ Back</button></div>
+    <div class="view">
+      <h1 style="margin-bottom:6px;">Weekly Schedule</h1>
+      <p class="text-dim" style="margin-bottom:18px;">Assign a routine or a rest day to each day of the week. Home shows today's plan.</p>`;
+
+  DAY_ORDER.forEach((day) => {
+    const val = Store.getScheduleDay(day);
+    let label = "Not set";
+    let icon = "➖";
+    if (val === "rest") {
+      label = "Rest Day";
+      icon = "😴";
+    } else if (val) {
+      const r = Store.getRoutine(val);
+      if (r) {
+        label = r.name;
+        icon = "🏋️";
+      }
+    }
+    html += `
+      <div class="card routine-card card-tap" onclick="openScheduleDayPicker(${day})">
+        <div class="info">
+          <h3>${DAY_NAMES[day]}</h3>
+          <p>${icon} ${escapeHtml(label)}</p>
+        </div>
+        <span style="color:var(--text-faint);font-size:20px;">›</span>
+      </div>`;
+  });
+
+  html += `</div>`;
+  return html;
+}
+
+function openScheduleDayPicker(day) {
+  let html = `<h2>${DAY_NAMES[day]}</h2><p class="text-dim" style="margin-bottom:14px;">Choose a routine or mark it a rest day.</p>`;
+  html += `<div class="picker-item card-tap" onclick="setScheduleDayAndClose(${day}, 'rest')"><span class="name">😴 Rest Day</span></div>`;
+
+  const routines = Store.state.routines;
+  if (routines.length === 0) {
+    html += `<p class="text-dim" style="margin-top:12px;">No routines yet — create one first.</p>`;
+  } else {
+    const grouped = groupRoutinesByCategory(routines);
+    Object.keys(grouped)
+      .sort(categorySortOrder)
+      .forEach((cat) => {
+        html += `<div class="section-title" style="margin-top:12px;">${escapeHtml(cat)}</div>`;
+        grouped[cat].forEach((r) => {
+          html += `<div class="picker-item card-tap" onclick="setScheduleDayAndClose(${day}, '${r.id}')"><span class="name">🏋️ ${escapeHtml(r.name)}</span></div>`;
+        });
+      });
+  }
+
+  html += `<button class="btn-danger" style="margin-top:16px;width:100%;" onclick="setScheduleDayAndClose(${day}, null)">Clear</button>`;
+  openSheet(html);
+}
+
+function setScheduleDayAndClose(day, value) {
+  Store.setScheduleDay(day, value);
+  closeSheet();
+  document.getElementById("view-root").innerHTML = renderSchedule();
+}
+
+function renderTodayCard() {
+  const today = new Date().getDay();
+  const val = Store.getScheduleDay(today);
+  if (!val) {
+    return `
+      <div class="card card-tap" onclick="navigate('#/schedule')">
+        <div class="row-between">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;">📅 No plan for today</h3>
+            <p class="text-dim">Set up your weekly schedule</p>
+          </div>
+          <span style="color:var(--text-faint);font-size:20px;">›</span>
+        </div>
+      </div>`;
+  }
+  if (val === "rest") {
+    return `
+      <div class="card">
+        <h3 style="font-size:16px;font-weight:700;">😴 Rest Day</h3>
+        <p class="text-dim">Recovery is part of the program.</p>
+      </div>`;
+  }
+  const r = Store.getRoutine(val);
+  if (!r) return "";
+  return `
+    <div class="card">
+      <div class="row-between">
+        <div>
+          <h3 style="font-size:16px;font-weight:700;">📅 Today: ${escapeHtml(r.name)}</h3>
+          <p class="text-dim">${r.exerciseIds.length} exercise${r.exerciseIds.length === 1 ? "" : "s"}</p>
+        </div>
+        <button class="btn btn-primary btn-small" style="width:auto;flex-shrink:0;" onclick="startWorkoutFromRoutine('${r.id}')">Start</button>
+      </div>
+    </div>`;
+}
+
 // ---------- Settings ----------
 function renderSettings() {
   const u = unit();
@@ -1413,6 +1522,9 @@ function renderSettings() {
           </div>
         </div>
       </div>
+
+      <div class="section-title">Planning</div>
+      <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="navigate('#/schedule')">📅 Weekly Schedule</button>
 
       <div class="section-title">Import</div>
       <p class="text-dim" style="margin-bottom:12px;">Bring in your history from the Strong app: export your data there as CSV (Settings → Export Data), then import it here. Safe to run more than once — it won't create duplicates.</p>
