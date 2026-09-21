@@ -135,12 +135,17 @@ const EXERCISE_LIBRARY = [
 
   // Cardio
   { name: "Running (Treadmill)", muscleGroup: "Cardio" },
+  { name: "Outdoor Run", muscleGroup: "Cardio" },
   { name: "Cycling (Bike)", muscleGroup: "Cardio" },
+  { name: "Outdoor Cycling", muscleGroup: "Cardio" },
   { name: "Rowing Machine", muscleGroup: "Cardio" },
   { name: "Elliptical", muscleGroup: "Cardio" },
   { name: "Stair Climber", muscleGroup: "Cardio" },
   { name: "Jump Rope", muscleGroup: "Cardio" },
   { name: "Walking", muscleGroup: "Cardio" },
+  { name: "Outdoor Walk", muscleGroup: "Cardio" },
+  { name: "Hiking", muscleGroup: "Cardio" },
+  { name: "12-3-30 (Treadmill)", muscleGroup: "Cardio" },
   { name: "Swimming", muscleGroup: "Cardio" },
 
   // Other

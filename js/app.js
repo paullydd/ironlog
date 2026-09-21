@@ -889,7 +889,23 @@ function renderWorkout() {
   return html;
 }
 
+function isCardioExercise(exerciseId) {
+  const meta = Store.getExercise(exerciseId);
+  return !!meta && meta.muscleGroup === "Cardio";
+}
+
+function formatCardioSet(s) {
+  const parts = [];
+  if (s.duration) parts.push(`${s.duration}min`);
+  if (s.distance) parts.push(`${s.distance}mi`);
+  if (s.incline) parts.push(`${s.incline}% incline`);
+  return parts.length ? parts.join(", ") : "logged";
+}
+
 function renderExerciseBlock(ex) {
+  if (isCardioExercise(ex.exerciseId)) {
+    return renderCardioExerciseBlock(ex);
+  }
   const last = Store.getLastPerformance(ex.exerciseId);
   let lastText = "No previous data";
   if (last) {
@@ -941,6 +957,126 @@ function renderExerciseBlock(ex) {
       ${rows}
       <button class="add-set-btn" onclick="addSetRow('${ex.exerciseId}')">${addLabel}</button>
     </div>`;
+}
+
+function renderCardioExerciseBlock(ex) {
+  const last = Store.getLastPerformance(ex.exerciseId);
+  const lastText = last ? "Last time: " + last.sets.map(formatCardioSet).join(", ") : "No previous data";
+  const exMeta = Store.getExercise(ex.exerciseId);
+
+  let rows = "";
+  ex.sets.forEach((set, i) => {
+    const isPR = isCardioPRSet(ex.exerciseId, set);
+    const rowClasses = ["cardio-set-row"];
+    if (set.done) rowClasses.push("cardio-set-row-done");
+    if (isPR) rowClasses.push("cardio-set-row-pr");
+    rows += `
+      <div class="${rowClasses.join(" ")}" data-exercise="${ex.exerciseId}" data-index="${i}">
+        <div class="cardio-set-header">
+          <button class="set-num" onclick="toggleCardioSetDone('${ex.exerciseId}', ${i})">${set.done ? "✓" : i + 1}</button>
+          <button class="set-remove" onclick="removeCardioSetRow('${ex.exerciseId}', ${i})">✕</button>
+        </div>
+        <div class="cardio-fields">
+          <div class="cardio-field">
+            <label>Duration (min)</label>
+            <input type="number" inputmode="numeric" value="${set.duration === "" || set.duration == null ? "" : set.duration}" oninput="updateCardioSetField('${ex.exerciseId}', ${i}, 'duration', this.value)" />
+          </div>
+          <div class="cardio-field">
+            <label>Distance (mi)</label>
+            <input type="number" inputmode="decimal" value="${set.distance === "" || set.distance == null ? "" : set.distance}" oninput="updateCardioSetField('${ex.exerciseId}', ${i}, 'distance', this.value)" />
+          </div>
+          <div class="cardio-field">
+            <label>Incline (%)</label>
+            <input type="number" inputmode="decimal" value="${set.incline === "" || set.incline == null ? "" : set.incline}" oninput="updateCardioSetField('${ex.exerciseId}', ${i}, 'incline', this.value)" />
+          </div>
+        </div>
+      </div>
+      ${isPR ? `<div class="pr-tag">🏆 New PR</div>` : ""}`;
+  });
+
+  const addLabel = ex.sets.length > 0 ? "+ Add Session" : "+ Log Cardio Session";
+
+  return `
+    <div class="exercise-block">
+      <div class="row-between">
+        <h3>${getExerciseIcon(ex.name, exMeta && exMeta.muscleGroup)} ${escapeHtml(ex.name)}</h3>
+        <button class="btn-ghost btn-small" onclick="removeExerciseFromWorkout('${ex.exerciseId}')">Remove</button>
+      </div>
+      <p class="last-time">${lastText}</p>
+      ${rows}
+      <button class="add-set-btn" onclick="addCardioSetRow('${ex.exerciseId}')">${addLabel}</button>
+    </div>`;
+}
+
+function updateCardioSetField(exerciseId, index, field, value) {
+  const ex = Store.state.activeWorkout.exercises.find((e) => e.exerciseId === exerciseId);
+  if (!ex || !ex.sets[index]) return;
+  ex.sets[index][field] = value === "" ? "" : Number(value);
+  Store.save();
+}
+
+function addCardioSetRow(exerciseId) {
+  const ex = Store.state.activeWorkout.exercises.find((e) => e.exerciseId === exerciseId);
+  if (!ex) return;
+  if (ex.sets.length > 0) {
+    const prev = ex.sets[ex.sets.length - 1];
+    ex.sets.push({ duration: prev.duration ?? "", distance: prev.distance ?? "", incline: prev.incline ?? "" });
+  } else {
+    const last = Store.getLastPerformance(exerciseId);
+    const lastSet = last && last.sets[0];
+    ex.sets.push({
+      duration: lastSet ? (lastSet.duration ?? "") : "",
+      distance: lastSet ? (lastSet.distance ?? "") : "",
+      incline: lastSet ? (lastSet.incline ?? "") : "",
+    });
+  }
+  Store.save();
+  refreshWorkoutView();
+}
+
+function removeCardioSetRow(exerciseId, index) {
+  const ex = Store.state.activeWorkout.exercises.find((e) => e.exerciseId === exerciseId);
+  if (!ex) return;
+  ex.sets.splice(index, 1);
+  Store.save();
+  refreshWorkoutView();
+}
+
+function isCardioPRSet(exerciseId, set) {
+  if (!set.done) return false;
+  const metric = Number(set.distance) > 0 ? "distance" : "duration";
+  const value = Number(set[metric]) || 0;
+  if (value <= 0) return false;
+  const best = Store.getBestCardioMetric(exerciseId, metric);
+  return !best || value > best;
+}
+
+function toggleCardioSetDone(exerciseId, index) {
+  const ex = Store.state.activeWorkout.exercises.find((e) => e.exerciseId === exerciseId);
+  if (!ex || !ex.sets[index]) return;
+  const set = ex.sets[index];
+  if (!set.done) {
+    if (!set.duration || Number(set.duration) <= 0) {
+      toast("Add a duration before marking this session done");
+      return;
+    }
+    set.done = true;
+    Store.save();
+    if (isLastInSupersetGroup(exerciseId)) {
+      startRestTimer();
+    }
+    if (isCardioPRSet(exerciseId, set)) {
+      const metric = Number(set.distance) > 0 ? "distance" : "duration";
+      toast(`🏆 New PR! ${set[metric]}${metric === "distance" ? "mi" : "min"}`);
+    } else if (!isLastInSupersetGroup(exerciseId)) {
+      const partnerName = getNextSupersetPartnerName(exerciseId);
+      if (partnerName) toast(`💪 Next: ${partnerName}`);
+    }
+  } else {
+    set.done = false;
+    Store.save();
+  }
+  refreshWorkoutView();
 }
 
 function getAddSetLabel(ex, last) {
@@ -1207,12 +1343,27 @@ function renderWorkoutDetail(id) {
 
   w.exercises.forEach((ex) => {
     const exMeta = Store.getExercise(ex.exerciseId);
+    const isCardio = isCardioExercise(ex.exerciseId);
     html += `
       <div class="card">
         <h3 class="card-tap" style="font-size:16px;font-weight:700;margin-bottom:6px;" onclick="navigate('#/exercise/${ex.exerciseId}')">${getExerciseIcon(ex.name, exMeta && exMeta.muscleGroup)} ${escapeHtml(ex.name)}</h3>
         ${ex.sets
-          .map(
-            (s, i) => `
+          .map((s, i) =>
+            isCardio
+              ? `
+          <div class="cardio-set-row" data-w="${w.id}" data-ex="${ex.exerciseId}" data-index="${i}">
+            <div class="cardio-set-header">
+              <span class="set-num">${i + 1}</span>
+              <button class="set-remove" onclick="removeHistorySetRow('${w.id}','${ex.exerciseId}',${i})">✕</button>
+            </div>
+            <div class="cardio-fields">
+              <div class="cardio-field"><label>Duration (min)</label><input type="number" inputmode="numeric" value="${s.duration ?? ""}" oninput="updateHistorySetField('${w.id}','${ex.exerciseId}',${i},'duration',this.value)" /></div>
+              <div class="cardio-field"><label>Distance (mi)</label><input type="number" inputmode="decimal" value="${s.distance ?? ""}" oninput="updateHistorySetField('${w.id}','${ex.exerciseId}',${i},'distance',this.value)" /></div>
+              <div class="cardio-field"><label>Incline (%)</label><input type="number" inputmode="decimal" value="${s.incline ?? ""}" oninput="updateHistorySetField('${w.id}','${ex.exerciseId}',${i},'incline',this.value)" /></div>
+            </div>
+          </div>
+          ${s.pr ? `<div class="pr-tag">🏆 PR</div>` : ""}`
+              : `
           <div class="set-row" data-w="${w.id}" data-ex="${ex.exerciseId}" data-index="${i}">
             <span class="set-num">${i + 1}</span>
             <div class="stepper-group">
@@ -1230,7 +1381,7 @@ function renderWorkoutDetail(id) {
           ${s.pr ? `<div class="pr-tag">🏆 PR</div>` : ""}`
           )
           .join("")}
-        <button class="add-set-btn" onclick="addHistorySetRow('${w.id}','${ex.exerciseId}')">+ Add Set</button>
+        <button class="add-set-btn" onclick="addHistorySetRow('${w.id}','${ex.exerciseId}')">${isCardio ? "+ Add Session" : "+ Add Set"}</button>
       </div>`;
   });
 
@@ -1276,7 +1427,7 @@ function adjustHistorySetField(workoutId, exerciseId, index, field, delta) {
 }
 
 function removeStalePrTag(workoutId, exerciseId, index) {
-  const row = document.querySelector(`.set-row[data-w="${workoutId}"][data-ex="${exerciseId}"][data-index="${index}"]`);
+  const row = document.querySelector(`[data-w="${workoutId}"][data-ex="${exerciseId}"][data-index="${index}"]`);
   const next = row && row.nextElementSibling;
   if (next && next.classList.contains("pr-tag")) next.remove();
 }
@@ -1286,7 +1437,11 @@ function addHistorySetRow(workoutId, exerciseId) {
   const ex = w && w.exercises.find((e) => e.exerciseId === exerciseId);
   if (!ex) return;
   const prev = ex.sets[ex.sets.length - 1];
-  ex.sets.push({ weight: prev ? prev.weight : "", reps: prev ? prev.reps : "" });
+  if (isCardioExercise(exerciseId)) {
+    ex.sets.push({ duration: prev ? (prev.duration ?? "") : "", distance: prev ? (prev.distance ?? "") : "", incline: prev ? (prev.incline ?? "") : "" });
+  } else {
+    ex.sets.push({ weight: prev ? prev.weight : "", reps: prev ? prev.reps : "" });
+  }
   Store.save();
   refreshWorkoutDetailView(workoutId);
 }
@@ -1315,6 +1470,9 @@ function renderExerciseDetail(id) {
   if (!ex) {
     navigate("#/history");
     return "";
+  }
+  if (ex.muscleGroup === "Cardio") {
+    return renderCardioExerciseDetail(ex);
   }
   const history = Store.getExerciseHistory(id); // newest first
   const best = Store.getBestSet(id);
@@ -1349,6 +1507,106 @@ function renderExerciseDetail(id) {
   }
   html += `</div>`;
   return html;
+}
+
+function renderCardioExerciseDetail(ex) {
+  const history = Store.getExerciseHistory(ex.id); // newest first
+  const bestDistance = Store.getBestCardioMetric(ex.id, "distance");
+  const bestDuration = Store.getBestCardioMetric(ex.id, "duration");
+
+  let html = `
+    <div class="topbar"><button class="back" onclick="history.back()">‹ Back</button></div>
+    <div class="view">
+      <h1 style="margin-bottom:2px;font-size:32px;">${getExerciseIcon(ex.name, ex.muscleGroup)} ${escapeHtml(ex.name)}</h1>
+      <p class="text-dim" style="margin-bottom:18px;">${escapeHtml(ex.muscleGroup)}</p>
+      <div class="pr-row">
+        <div class="stat"><span class="num">${bestDistance || "–"}</span><span class="label">Farthest (mi)</span></div>
+        <div class="stat"><span class="num">${bestDuration || "–"}</span><span class="label">Longest (min)</span></div>
+        <div class="stat"><span class="num">${history.length}</span><span class="label">Sessions</span></div>
+      </div>`;
+
+  if (history.length >= 2) {
+    html += renderCardioProgressChart(history);
+  }
+
+  html += `<div class="section-title">History</div>`;
+  if (history.length === 0) {
+    html += `<p class="text-dim">No sessions logged for this exercise yet.</p>`;
+  } else {
+    history.forEach((h) => {
+      html += `
+        <div class="card">
+          <div class="date">${formatDate(h.date)}</div>
+          <div class="detail-set-list">
+            ${h.sets.map((s, i) => `<div>Session ${i + 1}: ${formatCardioSet(s)}${s.pr ? ` <span class="pr-badge">🏆 PR</span>` : ""}</div>`).join("")}
+          </div>
+        </div>`;
+    });
+  }
+  html += `</div>`;
+  return html;
+}
+
+function renderCardioProgressChart(history) {
+  const points = [...history].reverse().map((h) => ({
+    date: h.date,
+    maxDistance: Math.max(...h.sets.map((s) => Number(s.distance) || 0)),
+    maxDuration: Math.max(...h.sets.map((s) => Number(s.duration) || 0)),
+  }));
+  const hasDistance = points.some((p) => p.maxDistance > 0);
+  const metric = hasDistance ? "maxDistance" : "maxDuration";
+  const label = hasDistance ? "mi" : "min";
+
+  const w = 500,
+    h = 160;
+  const padL = 36,
+    padR = 12,
+    padT = 16,
+    padB = 26;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+
+  const maxVal = Math.max(...points.map((p) => p[metric]), 1);
+  const minVal = Math.min(...points.map((p) => p[metric]), 0);
+  const range = maxVal - minVal || 1;
+
+  const x = (i) => padL + (points.length === 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
+  const y = (v) => padT + plotH - ((v - minVal) / range) * plotH;
+
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p[metric]).toFixed(1)}`).join(" ");
+
+  const gridLines = [0, 0.5, 1]
+    .map((f) => {
+      const gy = padT + plotH * f;
+      const val = Math.round(maxVal - f * range);
+      return `<line x1="${padL}" y1="${gy}" x2="${w - padR}" y2="${gy}" stroke="#2a2f36" stroke-width="1" />
+            <text x="${padL - 6}" y="${gy + 4}" font-size="10" fill="#666d77" text-anchor="end">${val}</text>`;
+    })
+    .join("");
+
+  const dots = points
+    .map(
+      (p, i) => `
+      <circle cx="${x(i).toFixed(1)}" cy="${y(p[metric]).toFixed(1)}" r="4" fill="#ff5722" stroke="#0d0f12" stroke-width="2">
+        <title>${formatDateShort(p.date)}: ${p[metric]}${label}</title>
+      </circle>`
+    )
+    .join("");
+
+  const firstLabel = points.length ? formatDateShort(points[0].date) : "";
+  const lastLabel = points.length ? formatDateShort(points[points.length - 1].date) : "";
+
+  return `
+    <div class="chart-wrap">
+      <p class="text-dim" style="font-size:12px;margin-bottom:8px;">${hasDistance ? "Distance" : "Duration"} per session (${label})</p>
+      <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" role="img" aria-label="Cardio progress over time">
+        ${gridLines}
+        <path d="${linePath}" fill="none" stroke="#ff5722" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        ${dots}
+        <text x="${padL}" y="${h - 4}" font-size="10" fill="#666d77">${firstLabel}</text>
+        <text x="${w - padR}" y="${h - 4}" font-size="10" fill="#666d77" text-anchor="end">${lastLabel}</text>
+      </svg>
+    </div>`;
 }
 
 function renderProgressChart(history) {
@@ -1430,6 +1688,7 @@ function getVolumeByMuscleGroup(daysBack) {
       w.exercises.forEach((ex) => {
         const exMeta = Store.getExercise(ex.exerciseId);
         const group = (exMeta && exMeta.muscleGroup) || "Other";
+        if (group === "Cardio") return; // tracked separately (duration/distance, not lifting volume)
         const vol = ex.sets.reduce((s, set) => s + (Number(set.weight) || 0) * (Number(set.reps) || 0), 0);
         totals[group] = (totals[group] || 0) + vol;
       });

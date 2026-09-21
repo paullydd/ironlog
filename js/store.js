@@ -194,9 +194,28 @@ const Store = {
     w.finishedAt = Date.now();
     // Drop exercises with zero logged sets so history stays clean.
     w.exercises = w.exercises.filter((e) => e.sets.length > 0);
-    // Tag sets that set a new all-time best weight for that exercise, so
-    // history/progress views can show a PR badge after the fact.
+    // Tag sets that set a new all-time best for that exercise (weight for
+    // strength, distance/duration for cardio), so history/progress views
+    // can show a PR badge after the fact.
     w.exercises.forEach((ex) => {
+      const exMeta = this.getExercise(ex.exerciseId);
+      if (exMeta && exMeta.muscleGroup === "Cardio") {
+        let runningBestDistance = this.getBestCardioMetric(ex.exerciseId, "distance") || 0;
+        let runningBestDuration = this.getBestCardioMetric(ex.exerciseId, "duration") || 0;
+        ex.sets.forEach((s) => {
+          const metric = Number(s.distance) > 0 ? "distance" : "duration";
+          const value = Number(s[metric]) || 0;
+          if (value <= 0) return;
+          if (metric === "distance" && value > runningBestDistance) {
+            s.pr = true;
+            runningBestDistance = value;
+          } else if (metric === "duration" && value > runningBestDuration) {
+            s.pr = true;
+            runningBestDuration = value;
+          }
+        });
+        return;
+      }
       const priorBest = this.getBestSet(ex.exerciseId);
       let runningBest = priorBest ? priorBest.weight : 0;
       ex.sets.forEach((s) => {
@@ -245,6 +264,21 @@ const Store = {
       }
     }
     return best;
+  },
+
+  // metric: "distance" or "duration" — the best value ever logged for a
+  // cardio exercise on that metric.
+  getBestCardioMetric(exerciseId, metric) {
+    let best = 0;
+    for (const w of this.state.workouts) {
+      const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
+      if (!ex) continue;
+      for (const s of ex.sets) {
+        const v = Number(s[metric]) || 0;
+        if (v > best) best = v;
+      }
+    }
+    return best > 0 ? best : null;
   },
 
   deleteWorkout(id) {

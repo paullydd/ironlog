@@ -40,7 +40,10 @@ function computeBadgeStats() {
     usedSuperset = false,
     bestBench = 0,
     bestSquat = 0,
-    bestDeadlift = 0;
+    bestDeadlift = 0,
+    cardioSessions = 0,
+    totalCardioMinutes = 0,
+    totalCardioDistance = 0;
   const exercisesUsed = new Set();
 
   workouts.forEach((w) => {
@@ -54,7 +57,15 @@ function computeBadgeStats() {
     w.exercises.forEach((ex) => {
       exercisesUsed.add(ex.exerciseId);
       const n = ex.name.toLowerCase();
+      const exMeta = Store.getExercise(ex.exerciseId);
+      const isCardio = exMeta && exMeta.muscleGroup === "Cardio";
       ex.sets.forEach((s) => {
+        if (isCardio) {
+          cardioSessions++;
+          totalCardioMinutes += Number(s.duration) || 0;
+          totalCardioDistance += Number(s.distance) || 0;
+          return;
+        }
         const weight = Number(s.weight) || 0;
         const reps = Number(s.reps) || 0;
         totalVolume += weight * reps;
@@ -74,6 +85,9 @@ function computeBadgeStats() {
     totalSets,
     totalReps,
     prCount,
+    cardioSessions,
+    totalCardioMinutes: Math.round(totalCardioMinutes),
+    totalCardioDistance: Math.round(totalCardioDistance * 10) / 10,
     longestWorkoutMin: Math.round(longestWorkoutMin),
     hasEarlyBird,
     hasNightOwl,
@@ -134,5 +148,10 @@ function getBadgeDefinitions() {
     { id: "marathon", icon: "⏱️", name: "Marathon Session", desc: "Complete a workout lasting 90+ minutes.", check: (s) => s.longestWorkoutMin >= 90 },
     { id: "variety", icon: "🧭", name: "Iron Explorer", desc: "Log 10 different exercises.", goal: 10, progress: (s) => s.exerciseVarietyCount, check: (s) => s.exerciseVarietyCount >= 10 },
     { id: "superset", icon: "🔗", name: "Superset Squad", desc: "Complete a workout using a superset.", check: (s) => s.usedSuperset },
+
+    { id: "cardio1", icon: "🏃", name: "Cardio Curious", desc: "Log your first cardio session.", goal: 1, progress: (s) => s.cardioSessions, check: (s) => s.cardioSessions >= 1 },
+    { id: "cardio10", icon: "🚴", name: "Cardio Regular", desc: "Log 10 cardio sessions.", goal: 10, progress: (s) => s.cardioSessions, check: (s) => s.cardioSessions >= 10 },
+    { id: "marathon-distance", icon: "🗺️", name: "Distance Trekker", desc: "Rack up 26.2 total cardio miles — a marathon's worth.", goal: 26.2, progress: (s) => s.totalCardioDistance, check: (s) => s.totalCardioDistance >= 26.2 },
+    { id: "cardio-hours", icon: "⏳", name: "Cardio Grinder", desc: "Log 10 total hours of cardio.", goal: 600, progress: (s) => s.totalCardioMinutes, check: (s) => s.totalCardioMinutes >= 600 },
   ];
 }

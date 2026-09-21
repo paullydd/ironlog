@@ -583,6 +583,57 @@ input, select {
   font-weight: 700;
 }
 
+/* ---- Cardio logging ---- */
+.cardio-set-row {
+  background: var(--bg-elevated);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  transition: background 0.15s ease;
+}
+
+.cardio-set-row.cardio-set-row-done {
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.cardio-set-row.cardio-set-row-pr {
+  background: rgba(255, 87, 34, 0.1);
+}
+
+.cardio-set-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.cardio-fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.cardio-field label {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-faint);
+  margin-bottom: 4px;
+}
+
+.cardio-field input {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 4px;
+  color: var(--text);
+  font-size: 15px;
+  text-align: center;
+}
+
 .add-set-btn {
   width: 100%;
   margin-top: 4px;
