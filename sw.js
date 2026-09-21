@@ -1,9 +1,11 @@
-const CACHE_NAME = "ironlog-v1";
+const CACHE_NAME = "ironlog-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./css/style.css",
   "./js/store.js",
+  "./js/exercise-library.js",
+  "./js/import-strong.js",
   "./js/app.js",
   "./manifest.json",
   "./icons/icon-192.png",

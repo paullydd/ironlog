@@ -175,7 +175,7 @@ function renderHome() {
             <h3>${escapeHtml(r.name)}</h3>
             <p>${r.exerciseIds.length} exercise${r.exerciseIds.length === 1 ? "" : "s"}</p>
           </div>
-          <button class="btn btn-primary btn-small" onclick="startWorkoutFromRoutine('${r.id}')">Start</button>
+          <button class="btn btn-primary btn-small" style="width:auto;flex-shrink:0;" onclick="startWorkoutFromRoutine('${r.id}')">Start</button>
         </div>`;
     });
   }
@@ -337,14 +337,50 @@ function openExercisePickerForRoutine() {
   }));
 }
 
+// ---------- Merged exercise list (your exercises + the built-in library) ----------
+function getMergedExerciseList() {
+  const map = new Map();
+  Store.state.exercises.forEach((ex) => {
+    map.set(ex.id, { key: ex.id, id: ex.id, name: ex.name, muscleGroup: ex.muscleGroup });
+  });
+  const existingNames = new Set(Store.state.exercises.map((ex) => ex.name.toLowerCase()));
+  EXERCISE_LIBRARY.forEach((libEx) => {
+    if (!existingNames.has(libEx.name.toLowerCase())) {
+      const key = "new:" + libEx.name.toLowerCase();
+      map.set(key, { key, id: null, name: libEx.name, muscleGroup: libEx.muscleGroup });
+    }
+  });
+  return Array.from(map.values());
+}
+
+function groupByMuscle(items) {
+  const groups = {};
+  items.forEach((it) => {
+    const g = it.muscleGroup || "Other";
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(it);
+  });
+  return groups;
+}
+
+function filterItemsBySearch(items, term) {
+  if (!term) return items;
+  const t = term.toLowerCase();
+  return items.filter((it) => it.name.toLowerCase().includes(t));
+}
+
 // ---------- Exercise picker sheet (multi-select, used by routine editor) ----------
 function renderExercisePickerSheet(preselectedIds, onDone) {
   window._pickerOnDone = onDone;
+  window._pickerItems = getMergedExerciseList();
   window._pickerSelected = new Set(preselectedIds);
-  const grouped = groupExercisesByMuscle(Store.state.exercises);
+  window._pickerSearch = "";
   let html = `
     <h2>Add Exercises</h2>
-    <p class="text-dim" style="margin-bottom:12px;">Select existing exercises or create a new one.</p>
+    <p class="text-dim" style="margin-bottom:12px;">Search ${window._pickerItems.length}+ exercises, or add your own.</p>
+    <div class="field">
+      <input type="text" id="picker-search" placeholder="Search exercises…" oninput="filterExercisePicker(this.value)" />
+    </div>
     <div class="field">
       <input type="text" id="new-exercise-name" placeholder="New exercise name" />
     </div>
@@ -354,46 +390,43 @@ function renderExercisePickerSheet(preselectedIds, onDone) {
       </select>
     </div>
     <button class="btn btn-secondary" style="margin-bottom:14px;" onclick="createExerciseFromSheet()">+ Add New Exercise</button>
-    <div class="picker-list" id="picker-list">${renderPickerListItems(grouped)}</div>
+    <div class="picker-list" id="picker-list">${renderPickerListItems()}</div>
     <button class="btn btn-primary" onclick="confirmExercisePicker()">Done</button>`;
   return html;
 }
 
-function groupExercisesByMuscle(exercises) {
-  const groups = {};
-  exercises.forEach((ex) => {
-    const g = ex.muscleGroup || "Other";
-    if (!groups[g]) groups[g] = [];
-    groups[g].push(ex);
-  });
-  return groups;
-}
-
-function renderPickerListItems(grouped) {
+function renderPickerListItems() {
+  const items = filterItemsBySearch(window._pickerItems, window._pickerSearch);
+  const grouped = groupByMuscle(items);
   const selected = window._pickerSelected;
   let html = "";
   Object.keys(grouped)
     .sort()
     .forEach((group) => {
       html += `<div class="section-title" style="margin-top:12px;">${group}</div>`;
-      grouped[group].forEach((ex) => {
-        const checked = selected.has(ex.id) ? "checked" : "";
+      grouped[group].forEach((it) => {
+        const checked = selected.has(it.key) ? "checked" : "";
         html += `
           <label class="picker-item">
-            <span class="name">${escapeHtml(ex.name)}</span>
-            <input type="checkbox" ${checked} onchange="togglePickerExercise('${ex.id}', this.checked)" />
+            <span class="name">${escapeHtml(it.name)}</span>
+            <input type="checkbox" ${checked} onchange="togglePickerExercise('${it.key}', this.checked)" />
           </label>`;
       });
     });
-  if (Object.keys(grouped).length === 0) {
-    html = `<p class="text-dim">No exercises yet — add one above.</p>`;
+  if (items.length === 0) {
+    html = `<p class="text-dim">No matches — add it as a new exercise above.</p>`;
   }
   return html;
 }
 
-function togglePickerExercise(exId, checked) {
-  if (checked) window._pickerSelected.add(exId);
-  else window._pickerSelected.delete(exId);
+function filterExercisePicker(term) {
+  window._pickerSearch = term;
+  document.getElementById("picker-list").innerHTML = renderPickerListItems();
+}
+
+function togglePickerExercise(key, checked) {
+  if (checked) window._pickerSelected.add(key);
+  else window._pickerSelected.delete(key);
 }
 
 function createExerciseFromSheet() {
@@ -405,16 +438,26 @@ function createExerciseFromSheet() {
     return;
   }
   const ex = Store.addExercise(name, muscleSelect.value);
+  window._pickerItems = getMergedExerciseList();
   window._pickerSelected.add(ex.id);
   nameInput.value = "";
-  const grouped = groupExercisesByMuscle(Store.state.exercises);
-  document.getElementById("picker-list").innerHTML = renderPickerListItems(grouped);
+  document.getElementById("picker-list").innerHTML = renderPickerListItems();
   toast(`Added ${ex.name}`);
 }
 
 function confirmExercisePicker() {
-  const selectedIds = Array.from(window._pickerSelected);
-  if (window._pickerOnDone) window._pickerOnDone(selectedIds);
+  const resolvedIds = [];
+  window._pickerSelected.forEach((key) => {
+    const item = window._pickerItems.find((it) => it.key === key);
+    if (!item) return;
+    if (item.id) {
+      resolvedIds.push(item.id);
+    } else {
+      const ex = Store.addExercise(item.name, item.muscleGroup);
+      resolvedIds.push(ex.id);
+    }
+  });
+  if (window._pickerOnDone) window._pickerOnDone(resolvedIds);
   closeSheet();
 }
 
@@ -526,12 +569,14 @@ function refreshWorkoutView() {
 }
 
 function openExercisePickerForWorkout() {
-  const grouped = groupExercisesByMuscle(Store.state.exercises);
-  window._pickerSelected = new Set();
-  window._pickerOnDone = null;
+  window._pickerItems = getMergedExerciseList();
+  window._pickerSearch = "";
   let html = `
     <h2>Add Exercise</h2>
-    <p class="text-dim" style="margin-bottom:12px;">Tap to add to this workout.</p>
+    <p class="text-dim" style="margin-bottom:12px;">Search ${window._pickerItems.length}+ exercises — tap to add to this workout.</p>
+    <div class="field">
+      <input type="text" id="picker-search" placeholder="Search exercises…" oninput="filterWorkoutPicker(this.value)" />
+    </div>
     <div class="field">
       <input type="text" id="new-exercise-name" placeholder="New exercise name" />
     </div>
@@ -541,32 +586,41 @@ function openExercisePickerForWorkout() {
       </select>
     </div>
     <button class="btn btn-secondary" style="margin-bottom:14px;" onclick="createExerciseForWorkout()">+ Add New Exercise</button>
-    <div class="picker-list" id="picker-list">${renderWorkoutPickerItems(grouped)}</div>`;
+    <div class="picker-list" id="picker-list">${renderWorkoutPickerItems()}</div>`;
   openSheet(html);
 }
 
-function renderWorkoutPickerItems(grouped) {
+function renderWorkoutPickerItems() {
+  const items = filterItemsBySearch(window._pickerItems, window._pickerSearch);
+  const grouped = groupByMuscle(items);
   const currentIds = new Set(Store.state.activeWorkout.exercises.map((e) => e.exerciseId));
   let html = "";
   Object.keys(grouped)
     .sort()
     .forEach((group) => {
       html += `<div class="section-title" style="margin-top:12px;">${group}</div>`;
-      grouped[group].forEach((ex) => {
-        const already = currentIds.has(ex.id);
+      grouped[group].forEach((it) => {
+        const already = it.id && currentIds.has(it.id);
         html += `
-          <div class="picker-item card-tap" style="${already ? "opacity:0.4;" : ""}" onclick="${already ? "" : `addExerciseToWorkoutFromSheet('${ex.id}')`}">
-            <span class="name">${escapeHtml(ex.name)}</span>
+          <div class="picker-item card-tap" style="${already ? "opacity:0.4;" : ""}" onclick="${already ? "" : `addPickedExerciseToWorkout('${it.key}')`}">
+            <span class="name">${escapeHtml(it.name)}</span>
             <span class="muscle">${already ? "Added" : "+"}</span>
           </div>`;
       });
     });
-  if (Object.keys(grouped).length === 0) html = `<p class="text-dim">No exercises yet — add one above.</p>`;
+  if (items.length === 0) html = `<p class="text-dim">No matches — add it as a new exercise above.</p>`;
   return html;
 }
 
-function addExerciseToWorkoutFromSheet(exId) {
-  const ex = Store.getExercise(exId);
+function filterWorkoutPicker(term) {
+  window._pickerSearch = term;
+  document.getElementById("picker-list").innerHTML = renderWorkoutPickerItems();
+}
+
+function addPickedExerciseToWorkout(key) {
+  const item = window._pickerItems.find((it) => it.key === key);
+  if (!item) return;
+  const ex = item.id ? Store.getExercise(item.id) : Store.addExercise(item.name, item.muscleGroup);
   Store.addExerciseToActiveWorkout(ex);
   closeSheet();
   refreshWorkoutView();
@@ -777,6 +831,10 @@ function renderSettings() {
         </div>
       </div>
 
+      <div class="section-title">Import</div>
+      <p class="text-dim" style="margin-bottom:12px;">Bring in your history from the Strong app: export your data there as CSV (Settings → Export Data), then import it here. Safe to run more than once — it won't create duplicates.</p>
+      <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="document.getElementById('import-strong-file-input').click()">💪 Import from Strong (CSV)</button>
+
       <div class="section-title">Your Data</div>
       <p class="text-dim" style="margin-bottom:12px;">Everything is stored only on this device. Export a backup before clearing your browser data or switching phones.</p>
       <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="exportData()">⬇ Export Backup (JSON)</button>
@@ -822,6 +880,29 @@ document.getElementById("import-file-input").addEventListener("change", (e) => {
       render();
     } catch (err) {
       alert("That file doesn't look like a valid IronLog backup.");
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = "";
+});
+
+document.getElementById("import-strong-file-input").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const result = importStrongData(reader.result);
+      const parts = [`${result.workoutsImported} workout${result.workoutsImported === 1 ? "" : "s"}`];
+      if (result.workoutsSkipped) parts.push(`${result.workoutsSkipped} already imported (skipped)`);
+      parts.push(`${result.routinesCreated} routine${result.routinesCreated === 1 ? "" : "s"}`);
+      parts.push(`${result.exercisesCreated} new exercise${result.exercisesCreated === 1 ? "" : "s"}`);
+      alert(`Import complete: ${parts.join(", ")}.`);
+      navigate("#/history");
+      render();
+    } catch (err) {
+      console.error(err);
+      alert("Couldn't read that file. Make sure it's a Strong CSV export (Settings → Export Data in the Strong app).");
     }
   };
   reader.readAsText(file);
