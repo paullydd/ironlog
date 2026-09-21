@@ -65,6 +65,7 @@ function render() {
     activeInterval = null;
   }
   const { name, params } = currentRoute();
+  if (name !== "workout") stopRestTimerSilently();
   const root = document.getElementById("view-root");
   const nav = document.getElementById("bottom-nav");
 
@@ -108,6 +109,9 @@ function render() {
     default:
       root.innerHTML = renderHome();
   }
+  root.classList.remove("view-fade");
+  void root.offsetWidth;
+  root.classList.add("view-fade");
   window.scrollTo(0, 0);
 }
 
@@ -116,12 +120,19 @@ window.addEventListener("hashchange", render);
 // ---------- Sheet (bottom modal) ----------
 function openSheet(html) {
   document.getElementById("sheet-content").innerHTML = html;
-  document.getElementById("sheet-backdrop").classList.remove("hidden");
+  const backdrop = document.getElementById("sheet-backdrop");
+  backdrop.classList.remove("hidden");
+  void backdrop.offsetWidth;
+  backdrop.classList.add("open");
 }
 
 function closeSheet() {
-  document.getElementById("sheet-backdrop").classList.add("hidden");
-  document.getElementById("sheet-content").innerHTML = "";
+  const backdrop = document.getElementById("sheet-backdrop");
+  backdrop.classList.remove("open");
+  setTimeout(() => {
+    backdrop.classList.add("hidden");
+    document.getElementById("sheet-content").innerHTML = "";
+  }, 200);
 }
 
 document.getElementById("sheet-backdrop").addEventListener("click", (e) => {
@@ -547,6 +558,97 @@ function updateWorkoutTimer() {
   el.textContent = formatDuration(Store.state.activeWorkout.startedAt, Date.now());
 }
 
+// ---------- Rest timer ----------
+const restTimer = { endAt: null, interval: null, duration: 90 };
+
+function startRestTimer(seconds) {
+  clearInterval(restTimer.interval);
+  restTimer.endAt = Date.now() + (seconds || restTimer.duration) * 1000;
+  renderRestBar();
+  restTimer.interval = setInterval(updateRestBar, 250);
+}
+
+function adjustRestTimer(deltaSeconds) {
+  if (!restTimer.endAt) return;
+  restTimer.endAt = Math.max(Date.now(), restTimer.endAt + deltaSeconds * 1000);
+  updateRestBar();
+}
+
+function skipRestTimer() {
+  clearInterval(restTimer.interval);
+  restTimer.interval = null;
+  restTimer.endAt = null;
+  const bar = document.getElementById("rest-bar");
+  if (bar) bar.remove();
+}
+
+function stopRestTimerSilently() {
+  clearInterval(restTimer.interval);
+  restTimer.interval = null;
+  restTimer.endAt = null;
+  const bar = document.getElementById("rest-bar");
+  if (bar) bar.remove();
+}
+
+function formatRestTime(totalSeconds) {
+  const s = Math.max(0, totalSeconds);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+function renderRestBar() {
+  let bar = document.getElementById("rest-bar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "rest-bar";
+    bar.className = "rest-bar";
+    document.body.appendChild(bar);
+  }
+  const remaining = Math.round((restTimer.endAt - Date.now()) / 1000);
+  bar.innerHTML = `
+    <span class="rest-label">😤 Rest <span id="rest-time-label">${formatRestTime(remaining)}</span></span>
+    <div class="rest-controls">
+      <button class="rest-btn" onclick="adjustRestTimer(-15)">−15s</button>
+      <button class="rest-btn" onclick="adjustRestTimer(15)">+15s</button>
+      <button class="rest-btn rest-skip" onclick="skipRestTimer()">Skip</button>
+    </div>`;
+}
+
+function updateRestBar() {
+  if (!restTimer.endAt) return;
+  const remaining = Math.round((restTimer.endAt - Date.now()) / 1000);
+  if (remaining <= 0) {
+    clearInterval(restTimer.interval);
+    restTimer.interval = null;
+    restTimer.endAt = null;
+    playRestEndSound();
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    const bar = document.getElementById("rest-bar");
+    if (bar) bar.remove();
+    return;
+  }
+  const label = document.getElementById("rest-time-label");
+  if (label) label.textContent = formatRestTime(remaining);
+}
+
+function playRestEndSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.6);
+  } catch (e) {
+    // Audio unavailable — the visual bar and vibration still cover it.
+  }
+}
+
 function renderWorkout() {
   const w = Store.state.activeWorkout;
   let html = `
@@ -585,6 +687,8 @@ function renderExerciseBlock(ex) {
   if (last) {
     lastText = "Last time: " + last.sets.map((s) => `${s.weight}${unit()}×${s.reps}`).join(", ");
   }
+  const bestBefore = Store.getBestSet(ex.exerciseId);
+  const bestWeight = bestBefore ? bestBefore.weight : 0;
 
   let rows = `
     <div class="set-table-head">
@@ -592,16 +696,30 @@ function renderExerciseBlock(ex) {
     </div>`;
   ex.sets.forEach((set, i) => {
     const placeholder = last && last.sets[i] ? last.sets[i] : null;
+    const isPR = set.done && Number(set.weight) > 0 && Number(set.weight) > bestWeight;
+    const rowClasses = ["set-row"];
+    if (set.done) rowClasses.push("set-row-done");
+    if (isPR) rowClasses.push("set-row-pr");
     rows += `
-      <div class="set-row" data-exercise="${ex.exerciseId}" data-index="${i}">
-        <span class="set-num">${i + 1}</span>
-        <input type="number" inputmode="decimal" placeholder="${placeholder ? placeholder.weight : ""}" value="${set.weight === "" ? "" : set.weight}" oninput="updateSetField('${ex.exerciseId}', ${i}, 'weight', this.value)" />
-        <input type="number" inputmode="numeric" placeholder="${placeholder ? placeholder.reps : ""}" value="${set.reps === "" ? "" : set.reps}" oninput="updateSetField('${ex.exerciseId}', ${i}, 'reps', this.value)" />
+      <div class="${rowClasses.join(" ")}" data-exercise="${ex.exerciseId}" data-index="${i}">
+        <button class="set-num" onclick="toggleSetDone('${ex.exerciseId}', ${i})">${set.done ? "✓" : i + 1}</button>
+        <div class="stepper-group">
+          <button class="stepper-btn" onclick="adjustSetField('${ex.exerciseId}', ${i}, 'weight', -5)">−</button>
+          <input class="weight-input" type="number" inputmode="decimal" placeholder="${placeholder ? placeholder.weight : ""}" value="${set.weight === "" ? "" : set.weight}" oninput="updateSetField('${ex.exerciseId}', ${i}, 'weight', this.value)" />
+          <button class="stepper-btn" onclick="adjustSetField('${ex.exerciseId}', ${i}, 'weight', 5)">+</button>
+        </div>
+        <div class="stepper-group">
+          <button class="stepper-btn" onclick="adjustSetField('${ex.exerciseId}', ${i}, 'reps', -1)">−</button>
+          <input class="reps-input" type="number" inputmode="numeric" placeholder="${placeholder ? placeholder.reps : ""}" value="${set.reps === "" ? "" : set.reps}" oninput="updateSetField('${ex.exerciseId}', ${i}, 'reps', this.value)" />
+          <button class="stepper-btn" onclick="adjustSetField('${ex.exerciseId}', ${i}, 'reps', 1)">+</button>
+        </div>
         <button class="set-remove" onclick="removeSetRow('${ex.exerciseId}', ${i})">✕</button>
-      </div>`;
+      </div>
+      ${isPR ? `<div class="pr-tag">🏆 New PR</div>` : ""}`;
   });
 
   const exMeta = Store.getExercise(ex.exerciseId);
+  const addLabel = getAddSetLabel(ex, last);
   return `
     <div class="exercise-block">
       <div class="row-between">
@@ -610,8 +728,19 @@ function renderExerciseBlock(ex) {
       </div>
       <p class="last-time">${lastText}</p>
       ${rows}
-      <button class="add-set-btn" onclick="addSetRow('${ex.exerciseId}')">+ Add Set</button>
+      <button class="add-set-btn" onclick="addSetRow('${ex.exerciseId}')">${addLabel}</button>
     </div>`;
+}
+
+function getAddSetLabel(ex, last) {
+  if (ex.sets.length > 0) {
+    const prev = ex.sets[ex.sets.length - 1];
+    if (prev.weight !== "" && prev.reps !== "") return `🔁 Repeat Last Set (${prev.weight}${unit()}×${prev.reps})`;
+    return "+ Add Set";
+  }
+  const lastSet = last && last.sets[0];
+  if (lastSet) return `+ Add Set (${lastSet.weight}${unit()}×${lastSet.reps})`;
+  return "+ Add Set";
 }
 
 function updateSetField(exerciseId, index, field, value) {
@@ -621,12 +750,53 @@ function updateSetField(exerciseId, index, field, value) {
   Store.save();
 }
 
+function adjustSetField(exerciseId, index, field, delta) {
+  const ex = Store.state.activeWorkout.exercises.find((e) => e.exerciseId === exerciseId);
+  if (!ex || !ex.sets[index]) return;
+  const current = Number(ex.sets[index][field]) || 0;
+  const next = Math.max(0, current + delta);
+  ex.sets[index][field] = next;
+  Store.save();
+  const row = document.querySelector(`.set-row[data-exercise="${exerciseId}"][data-index="${index}"]`);
+  const input = row && row.querySelector(field === "weight" ? ".weight-input" : ".reps-input");
+  if (input) input.value = next;
+}
+
+function toggleSetDone(exerciseId, index) {
+  const ex = Store.state.activeWorkout.exercises.find((e) => e.exerciseId === exerciseId);
+  if (!ex || !ex.sets[index]) return;
+  const set = ex.sets[index];
+  if (!set.done) {
+    if (set.reps === "" || set.reps === undefined || set.reps === null || Number(set.reps) <= 0) {
+      toast("Add reps before marking this set done");
+      return;
+    }
+    set.done = true;
+    Store.save();
+    startRestTimer();
+    const best = Store.getBestSet(exerciseId);
+    const weight = Number(set.weight) || 0;
+    if (weight > 0 && (!best || weight > best.weight)) {
+      toast(`🏆 New PR! ${weight}${unit()} × ${set.reps}`);
+    }
+  } else {
+    set.done = false;
+    Store.save();
+  }
+  refreshWorkoutView();
+}
+
 function addSetRow(exerciseId) {
   const ex = Store.state.activeWorkout.exercises.find((e) => e.exerciseId === exerciseId);
   if (!ex) return;
-  const last = Store.getLastPerformance(exerciseId);
-  const lastSet = last && last.sets[ex.sets.length];
-  ex.sets.push({ weight: lastSet ? lastSet.weight : "", reps: lastSet ? lastSet.reps : "" });
+  if (ex.sets.length > 0) {
+    const prev = ex.sets[ex.sets.length - 1];
+    ex.sets.push({ weight: prev.weight, reps: prev.reps });
+  } else {
+    const last = Store.getLastPerformance(exerciseId);
+    const lastSet = last && last.sets[0];
+    ex.sets.push({ weight: lastSet ? lastSet.weight : "", reps: lastSet ? lastSet.reps : "" });
+  }
   Store.save();
   refreshWorkoutView();
 }
@@ -785,7 +955,7 @@ function renderWorkoutDetail(id) {
       <div class="card">
         <h3 class="card-tap" style="font-size:16px;font-weight:700;margin-bottom:6px;" onclick="navigate('#/exercise/${ex.exerciseId}')">${getExerciseIcon(ex.name, exMeta && exMeta.muscleGroup)} ${escapeHtml(ex.name)}</h3>
         <div class="detail-set-list">
-          ${ex.sets.map((s, i) => `<div>Set ${i + 1}: ${s.weight}${unit()} × ${s.reps}</div>`).join("")}
+          ${ex.sets.map((s, i) => `<div>Set ${i + 1}: ${s.weight}${unit()} × ${s.reps}${s.pr ? ` <span class="pr-badge">🏆 PR</span>` : ""}</div>`).join("")}
         </div>
       </div>`;
   });
@@ -837,7 +1007,7 @@ function renderExerciseDetail(id) {
         <div class="card">
           <div class="date">${formatDate(h.date)}</div>
           <div class="detail-set-list">
-            ${h.sets.map((s, i) => `<div>Set ${i + 1}: ${s.weight}${unit()} × ${s.reps}</div>`).join("")}
+            ${h.sets.map((s, i) => `<div>Set ${i + 1}: ${s.weight}${unit()} × ${s.reps}${s.pr ? ` <span class="pr-badge">🏆 PR</span>` : ""}</div>`).join("")}
           </div>
         </div>`;
     });

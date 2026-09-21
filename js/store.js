@@ -167,6 +167,19 @@ const Store = {
     w.finishedAt = Date.now();
     // Drop exercises with zero logged sets so history stays clean.
     w.exercises = w.exercises.filter((e) => e.sets.length > 0);
+    // Tag sets that set a new all-time best weight for that exercise, so
+    // history/progress views can show a PR badge after the fact.
+    w.exercises.forEach((ex) => {
+      const priorBest = this.getBestSet(ex.exerciseId);
+      let runningBest = priorBest ? priorBest.weight : 0;
+      ex.sets.forEach((s) => {
+        const weight = Number(s.weight) || 0;
+        if (weight > 0 && weight > runningBest) {
+          s.pr = true;
+          runningBest = weight;
+        }
+      });
+    });
     if (w.exercises.length > 0) {
       this.state.workouts.unshift(w);
     }
