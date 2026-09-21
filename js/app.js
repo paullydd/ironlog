@@ -324,6 +324,29 @@ function renderRoutinesList(routines) {
 }
 
 // ---------- Routine editor ----------
+// Groups an ordered exercise-id list into display "blocks" using a list of
+// superset groups (each an array of 2+ ids that must be contiguous in the
+// order). A block is {type:"single"|"superset", ids:[...]}. Reordering and
+// removal always operate on whole blocks so a group can never silently pick
+// up or lose a member just because list order changed elsewhere.
+function computeBlocks(orderedIds, groups) {
+  const blocks = [];
+  const consumed = new Set();
+  orderedIds.forEach((id) => {
+    if (consumed.has(id)) return;
+    const group = (groups || []).find((g) => g.includes(id));
+    const orderedGroupIds = group ? orderedIds.filter((gid) => group.includes(gid)) : null;
+    if (orderedGroupIds && orderedGroupIds.length >= 2) {
+      orderedGroupIds.forEach((gid) => consumed.add(gid));
+      blocks.push({ type: "superset", ids: orderedGroupIds });
+    } else {
+      consumed.add(id);
+      blocks.push({ type: "single", ids: [id] });
+    }
+  });
+  return blocks;
+}
+
 let routineEditState = null;
 
 function renderRoutineEdit(id) {
@@ -339,6 +362,7 @@ function renderRoutineEdit(id) {
     name: routine ? routine.name : "",
     category: routine ? routine.category || "General" : "",
     exerciseIds: routine ? [...routine.exerciseIds] : [],
+    supersets: routine && routine.supersets ? routine.supersets.map((g) => [...g]) : [],
   };
 
   return renderRoutineEditView();
@@ -384,34 +408,70 @@ function renderRoutineExerciseRows() {
   if (s.exerciseIds.length === 0) {
     return `<p class="text-dim" style="margin-bottom:12px;">No exercises added yet.</p>`;
   }
-  return s.exerciseIds
-    .map((exId, i) => {
-      const ex = Store.getExercise(exId);
-      if (!ex) return "";
-      return `
-        <div class="routine-exercise-row">
-          <span>${getExerciseIcon(ex.name, ex.muscleGroup)} ${escapeHtml(ex.name)}</span>
-          <div class="reorder-controls">
-            <button class="btn-icon reorder-btn" ${i === 0 ? "disabled" : ""} onclick="moveRoutineExercise(${i}, -1)">▲</button>
-            <button class="btn-icon reorder-btn" ${i === s.exerciseIds.length - 1 ? "disabled" : ""} onclick="moveRoutineExercise(${i}, 1)">▼</button>
-            <button class="btn-icon" style="width:32px;height:32px;font-size:14px;" onclick="removeExerciseFromRoutine('${exId}')">✕</button>
-          </div>
+  const blocks = computeBlocks(s.exerciseIds, s.supersets);
+  return blocks
+    .map((block, i) => {
+      const isSuperset = block.type === "superset";
+      let html = `<div class="${isSuperset ? "superset-block" : ""}">`;
+      if (isSuperset) html += `<div class="superset-label">🔗 Superset</div>`;
+      block.ids.forEach((exId) => {
+        const ex = Store.getExercise(exId);
+        if (!ex) return;
+        html += `
+          <div class="routine-exercise-row">
+            <span>${getExerciseIcon(ex.name, ex.muscleGroup)} ${escapeHtml(ex.name)}</span>
+            <button class="btn-icon" style="width:32px;height:32px;font-size:14px;" onclick="removeExerciseFromRoutineBlock('${exId}')">✕</button>
+          </div>`;
+      });
+      html += `
+        <div class="block-controls">
+          <button class="reorder-btn btn-icon" ${i === 0 ? "disabled" : ""} onclick="moveRoutineBlock(${i}, -1)">▲</button>
+          <button class="reorder-btn btn-icon" ${i === blocks.length - 1 ? "disabled" : ""} onclick="moveRoutineBlock(${i}, 1)">▼</button>
+          ${isSuperset ? `<button class="btn-ghost btn-small" onclick="unlinkRoutineBlock(${i})">Unlink</button>` : ""}
+          ${!isSuperset && i < blocks.length - 1 ? `<button class="btn-ghost btn-small" onclick="mergeRoutineBlocks(${i})">🔗 Link with next</button>` : ""}
         </div>`;
+      html += `</div>`;
+      return html;
     })
     .join("");
 }
 
-function moveRoutineExercise(index, direction) {
-  const arr = routineEditState.exerciseIds;
-  const newIndex = index + direction;
-  if (newIndex < 0 || newIndex >= arr.length) return;
-  [arr[index], arr[newIndex]] = [arr[newIndex], arr[index]];
+function refreshRoutineExerciseList() {
   document.getElementById("routine-exercise-list").innerHTML = renderRoutineExerciseRows();
 }
 
-function removeExerciseFromRoutine(exId) {
-  routineEditState.exerciseIds = routineEditState.exerciseIds.filter((id) => id !== exId);
-  document.getElementById("routine-exercise-list").innerHTML = renderRoutineExerciseRows();
+function moveRoutineBlock(blockIndex, direction) {
+  const s = routineEditState;
+  const blocks = computeBlocks(s.exerciseIds, s.supersets);
+  const newIndex = blockIndex + direction;
+  if (newIndex < 0 || newIndex >= blocks.length) return;
+  [blocks[blockIndex], blocks[newIndex]] = [blocks[newIndex], blocks[blockIndex]];
+  s.exerciseIds = blocks.flatMap((b) => b.ids);
+  refreshRoutineExerciseList();
+}
+
+function mergeRoutineBlocks(blockIndex) {
+  const s = routineEditState;
+  const blocks = computeBlocks(s.exerciseIds, s.supersets);
+  if (blockIndex < 0 || blockIndex >= blocks.length - 1) return;
+  const merged = [...blocks[blockIndex].ids, ...blocks[blockIndex + 1].ids];
+  const rest = blocks.filter((b, i) => i !== blockIndex && i !== blockIndex + 1 && b.type === "superset").map((b) => b.ids);
+  s.supersets = [...rest, merged];
+  refreshRoutineExerciseList();
+}
+
+function unlinkRoutineBlock(blockIndex) {
+  const s = routineEditState;
+  const blocks = computeBlocks(s.exerciseIds, s.supersets);
+  s.supersets = blocks.filter((b, i) => i !== blockIndex && b.type === "superset").map((b) => b.ids);
+  refreshRoutineExerciseList();
+}
+
+function removeExerciseFromRoutineBlock(exId) {
+  const s = routineEditState;
+  s.exerciseIds = s.exerciseIds.filter((id) => id !== exId);
+  s.supersets = s.supersets.map((g) => g.filter((id) => id !== exId)).filter((g) => g.length >= 2);
+  refreshRoutineExerciseList();
 }
 
 function saveRoutine() {
@@ -426,9 +486,9 @@ function saveRoutine() {
   const category = categoryInput.value.trim() || "General";
   const s = routineEditState;
   if (s.id) {
-    Store.updateRoutine(s.id, { name, category, exerciseIds: s.exerciseIds });
+    Store.updateRoutine(s.id, { name, category, exerciseIds: s.exerciseIds, supersets: s.supersets });
   } else {
-    Store.addRoutine(name, s.exerciseIds, category);
+    Store.addRoutine(name, s.exerciseIds, category, s.supersets);
   }
   toast("Routine saved");
   navigate("#/routines");
@@ -688,8 +748,24 @@ function renderWorkout() {
         <p>Add an exercise to get started.</p>
       </div>`;
   } else {
-    w.exercises.forEach((ex) => {
-      html += renderExerciseBlock(ex);
+    const blocks = computeBlocks(w.exercises.map((e) => e.exerciseId), w.supersets);
+    blocks.forEach((block, i) => {
+      if (block.type === "superset") {
+        html += `<div class="superset-block">`;
+        html += `<div class="superset-label">🔗 Superset — alternate sets, rest after the last one</div>`;
+        block.ids.forEach((exId) => {
+          const ex = w.exercises.find((e) => e.exerciseId === exId);
+          if (ex) html += renderExerciseBlock(ex);
+        });
+        html += `<button class="btn-ghost btn-small" onclick="unlinkWorkoutBlock(${i})">Unlink Superset</button>`;
+        html += `</div>`;
+      } else {
+        const ex = w.exercises.find((e) => e.exerciseId === block.ids[0]);
+        if (ex) html += renderExerciseBlock(ex);
+      }
+      if (i < blocks.length - 1) {
+        html += `<button class="link-next-btn" onclick="mergeWorkoutBlocks(${i})">🔗 Link with next as superset</button>`;
+      }
     });
   }
 
@@ -796,16 +872,60 @@ function toggleSetDone(exerciseId, index) {
     }
     set.done = true;
     Store.save();
-    startRestTimer();
     const best = Store.getBestSet(exerciseId);
     const weight = Number(set.weight) || 0;
-    if (weight > 0 && (!best || weight > best.weight)) {
+    const isPR = weight > 0 && (!best || weight > best.weight);
+    if (isLastInSupersetGroup(exerciseId)) {
+      startRestTimer();
+    }
+    if (isPR) {
       toast(`🏆 New PR! ${weight}${unit()} × ${set.reps}`);
+    } else if (!isLastInSupersetGroup(exerciseId)) {
+      const partnerName = getNextSupersetPartnerName(exerciseId);
+      if (partnerName) toast(`💪 Next: ${partnerName}`);
     }
   } else {
     set.done = false;
     Store.save();
   }
+  refreshWorkoutView();
+}
+
+function isLastInSupersetGroup(exerciseId) {
+  const w = Store.state.activeWorkout;
+  const group = w.supersets && w.supersets.find((g) => g.includes(exerciseId));
+  if (!group) return true;
+  const orderedIds = w.exercises.map((e) => e.exerciseId).filter((id) => group.includes(id));
+  return orderedIds[orderedIds.length - 1] === exerciseId;
+}
+
+function getNextSupersetPartnerName(exerciseId) {
+  const w = Store.state.activeWorkout;
+  const group = w.supersets && w.supersets.find((g) => g.includes(exerciseId));
+  if (!group) return null;
+  const orderedIds = w.exercises.map((e) => e.exerciseId).filter((id) => group.includes(id));
+  const idx = orderedIds.indexOf(exerciseId);
+  if (idx === -1 || idx === orderedIds.length - 1) return null;
+  const nextEx = w.exercises.find((e) => e.exerciseId === orderedIds[idx + 1]);
+  return nextEx ? nextEx.name : null;
+}
+
+function mergeWorkoutBlocks(blockIndex) {
+  const w = Store.state.activeWorkout;
+  const blocks = computeBlocks(w.exercises.map((e) => e.exerciseId), w.supersets);
+  if (blockIndex < 0 || blockIndex >= blocks.length - 1) return;
+  const merged = [...blocks[blockIndex].ids, ...blocks[blockIndex + 1].ids];
+  const rest = blocks.filter((b, i) => i !== blockIndex && i !== blockIndex + 1 && b.type === "superset").map((b) => b.ids);
+  w.supersets = [...rest, merged];
+  Store.save();
+  refreshWorkoutView();
+}
+
+function unlinkWorkoutBlock(blockIndex) {
+  const w = Store.state.activeWorkout;
+  const blocks = computeBlocks(w.exercises.map((e) => e.exerciseId), w.supersets);
+  w.supersets = blocks.filter((b, i) => i !== blockIndex && b.type === "superset").map((b) => b.ids);
+  Store.save();
   refreshWorkoutView();
 }
 

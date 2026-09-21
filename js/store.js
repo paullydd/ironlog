@@ -72,12 +72,13 @@ const Store = {
   },
 
   // ----- Routines -----
-  addRoutine(name, exerciseIds, category) {
+  addRoutine(name, exerciseIds, category, supersets) {
     const routine = {
       id: uid(),
       name: name.trim(),
       exerciseIds: exerciseIds || [],
       category: (category || "General").trim() || "General",
+      supersets: supersets || [],
       createdAt: Date.now(),
     };
     this.state.routines.push(routine);
@@ -139,6 +140,7 @@ const Store = {
       routineName: routine ? routine.name : "Quick Workout",
       startedAt: Date.now(),
       exercises,
+      supersets: routine && routine.supersets ? routine.supersets.map((g) => [...g]) : [],
     };
     this.save();
     return this.state.activeWorkout;
@@ -162,6 +164,11 @@ const Store = {
     this.state.activeWorkout.exercises = this.state.activeWorkout.exercises.filter(
       (e) => e.exerciseId !== exerciseId
     );
+    if (this.state.activeWorkout.supersets) {
+      this.state.activeWorkout.supersets = this.state.activeWorkout.supersets
+        .map((g) => g.filter((id) => id !== exerciseId))
+        .filter((g) => g.length >= 2);
+    }
     this.save();
   },
 

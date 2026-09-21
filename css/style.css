@@ -373,6 +373,56 @@ input, select {
   transform: scale(0.88);
 }
 
+/* ---- Supersets ---- */
+.superset-block {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px 12px 4px;
+  margin-bottom: 12px;
+  background: rgba(255, 87, 34, 0.05);
+}
+
+.superset-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.superset-block .exercise-block {
+  margin-bottom: 14px;
+}
+
+.superset-block .routine-exercise-row {
+  margin-bottom: 6px;
+}
+
+.block-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.link-next-btn {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  border-radius: 10px;
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.link-next-btn:active {
+  transform: scale(0.98);
+}
+
 /* ---- Active workout ---- */
 .workout-header {
   padding: 16px 20px;
