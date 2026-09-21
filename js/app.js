@@ -15,6 +15,19 @@ function formatDateShort(ts) {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function formatTimeOfDay(ts) {
+  return new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function getTodaysCompletedWorkoutForRoutine(routineId) {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const endOfDay = startOfDay + 86400000;
+  return (
+    Store.state.workouts.find((w) => w.routineId === routineId && w.finishedAt >= startOfDay && w.finishedAt < endOfDay) || null
+  );
+}
+
 function formatDuration(startMs, endMs) {
   const mins = Math.max(1, Math.round((endMs - startMs) / 60000));
   if (mins < 60) return `${mins} min`;
@@ -1617,6 +1630,21 @@ function renderTodayCard() {
   }
   const r = Store.getRoutine(val);
   if (!r) return "";
+
+  const completedToday = getTodaysCompletedWorkoutForRoutine(r.id);
+  if (completedToday) {
+    return `
+      <div class="card">
+        <div class="row-between">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;">✅ Done for today: ${escapeHtml(r.name)}</h3>
+            <p class="text-dim">Finished at ${formatTimeOfDay(completedToday.finishedAt)}</p>
+          </div>
+          <button class="btn btn-secondary btn-small" style="width:auto;flex-shrink:0;" onclick="startWorkoutFromRoutine('${r.id}')">Again</button>
+        </div>
+      </div>`;
+  }
+
   return `
     <div class="card">
       <div class="row-between">
