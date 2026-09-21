@@ -685,6 +685,48 @@ input, select {
   text-align: right;
 }
 
+/* ---- Plate calculator ---- */
+.plate-viz {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 18px 0;
+  overflow-x: auto;
+  padding: 4px;
+}
+
+.plate-stack {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.plate-stack-left {
+  flex-direction: row-reverse;
+}
+
+.bar-segment {
+  width: 46px;
+  height: 8px;
+  background: var(--text-faint);
+  border-radius: 2px;
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.plate {
+  width: 16px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  writing-mode: vertical-rl;
+  font-size: 9px;
+  font-weight: 700;
+}
+
 /* ---- Modal / sheet ---- */
 .sheet-backdrop {
   position: fixed;

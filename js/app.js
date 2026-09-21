@@ -744,7 +744,10 @@ function renderExerciseBlock(ex) {
     <div class="exercise-block">
       <div class="row-between">
         <h3>${getExerciseIcon(ex.name, exMeta && exMeta.muscleGroup)} ${escapeHtml(ex.name)}</h3>
-        <button class="btn-ghost btn-small" onclick="removeExerciseFromWorkout('${ex.exerciseId}')">Remove</button>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn-ghost btn-small" onclick="openPlateCalculatorForExercise('${ex.exerciseId}')">🧮</button>
+          <button class="btn-ghost btn-small" onclick="removeExerciseFromWorkout('${ex.exerciseId}')">Remove</button>
+        </div>
       </div>
       <p class="last-time">${lastText}</p>
       ${rows}
@@ -1506,6 +1509,113 @@ function renderTodayCard() {
     </div>`;
 }
 
+// ---------- Plate calculator ----------
+function openPlateCalculator(prefillWeight) {
+  const u = unit();
+  window._plateBar = DEFAULT_BAR_WEIGHT[u] || DEFAULT_BAR_WEIGHT.lbs;
+  window._plateTarget = prefillWeight && prefillWeight > 0 ? prefillWeight : window._plateBar;
+  openSheet(renderPlateCalculatorSheet());
+}
+
+function openPlateCalculatorForExercise(exerciseId) {
+  let prefill = null;
+  const active = Store.state.activeWorkout && Store.state.activeWorkout.exercises.find((e) => e.exerciseId === exerciseId);
+  if (active && active.sets.length > 0) {
+    const lastSet = active.sets[active.sets.length - 1];
+    if (lastSet.weight !== "" && lastSet.weight != null) prefill = Number(lastSet.weight);
+  }
+  if (prefill === null) {
+    const last = Store.getLastPerformance(exerciseId);
+    if (last && last.sets[0] && last.sets[0].weight) prefill = Number(last.sets[0].weight);
+  }
+  openPlateCalculator(prefill);
+}
+
+function renderPlateCalculatorSheet() {
+  const u = unit();
+  const barOptions = BAR_WEIGHT_OPTIONS[u] || BAR_WEIGHT_OPTIONS.lbs;
+  return `
+    <h2>🧮 Plate Calculator</h2>
+    <div class="field" style="margin-top:14px;">
+      <label>Bar Weight</label>
+      <select id="plate-bar-select" onchange="setPlateBar(this.value)">
+        ${barOptions.map((b) => `<option value="${b}" ${b === window._plateBar ? "selected" : ""}>${b}${u} bar</option>`).join("")}
+      </select>
+    </div>
+    <div class="field">
+      <label>Target Weight (${u})</label>
+      <div class="stepper-group" style="max-width:220px;">
+        <button class="stepper-btn" style="width:34px;height:40px;" onclick="adjustPlateTarget(-5)">−</button>
+        <input type="number" inputmode="decimal" id="plate-target-input" value="${window._plateTarget}" oninput="setPlateTarget(this.value)" style="text-align:center;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-size:18px;width:100%;" />
+        <button class="stepper-btn" style="width:34px;height:40px;" onclick="adjustPlateTarget(5)">+</button>
+      </div>
+    </div>
+    <div id="plate-visual">${renderPlateVisual(u)}</div>
+    <div id="plate-breakdown">${renderPlateBreakdown(u)}</div>`;
+}
+
+function setPlateBar(val) {
+  window._plateBar = Number(val);
+  refreshPlateCalc();
+}
+
+function setPlateTarget(val) {
+  window._plateTarget = val === "" ? 0 : Number(val);
+  refreshPlateCalc();
+}
+
+function adjustPlateTarget(delta) {
+  window._plateTarget = Math.max(0, (Number(window._plateTarget) || 0) + delta);
+  const input = document.getElementById("plate-target-input");
+  if (input) input.value = window._plateTarget;
+  refreshPlateCalc();
+}
+
+function refreshPlateCalc() {
+  const u = unit();
+  document.getElementById("plate-visual").innerHTML = renderPlateVisual(u);
+  document.getElementById("plate-breakdown").innerHTML = renderPlateBreakdown(u);
+}
+
+function renderPlateVisual(u) {
+  const { plates } = calculatePlates(window._plateTarget, window._plateBar, u);
+  if (plates.length === 0) {
+    return `<p class="text-dim" style="text-align:center;margin:20px 0;">Just the bar — no plates needed.</p>`;
+  }
+  const colors = PLATE_COLORS[u] || PLATE_COLORS.lbs;
+  const sequence = [];
+  plates.forEach((p) => {
+    for (let i = 0; i < p.count; i++) sequence.push(p.size);
+  });
+  const stackHtml = sequence
+    .map((size) => {
+      const height = Math.min(92, 34 + size * 1.7);
+      const color = colors[size] || "#9aa1ab";
+      const textColor = size === 10 || size === 5 ? "#0d0f12" : "#fff";
+      return `<div class="plate" style="height:${height}px;background:${color};color:${textColor};" title="${size}${u}">${size}</div>`;
+    })
+    .join("");
+  return `
+    <div class="plate-viz">
+      <div class="plate-stack plate-stack-left">${stackHtml}</div>
+      <div class="bar-segment"></div>
+      <div class="plate-stack">${stackHtml}</div>
+    </div>`;
+}
+
+function renderPlateBreakdown(u) {
+  const { plates, remaining } = calculatePlates(window._plateTarget, window._plateBar, u);
+  if (plates.length === 0) {
+    return `<p class="text-dim" style="text-align:center;">Bar only: ${window._plateBar}${u}</p>`;
+  }
+  let html = `<p class="text-dim" style="text-align:center;margin-bottom:6px;">Per side:</p>`;
+  html += `<div style="text-align:center;font-size:18px;font-weight:800;margin-bottom:8px;">${plates.map((p) => `${p.size}${u}×${p.count}`).join("  +  ")}</div>`;
+  if (remaining > 0.01) {
+    html += `<p class="text-dim" style="text-align:center;font-size:12px;">${remaining.toFixed(1)}${u} short per side — no smaller plates available.</p>`;
+  }
+  return html;
+}
+
 // ---------- Settings ----------
 function renderSettings() {
   const u = unit();
@@ -1525,6 +1635,9 @@ function renderSettings() {
 
       <div class="section-title">Planning</div>
       <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="navigate('#/schedule')">📅 Weekly Schedule</button>
+
+      <div class="section-title">Tools</div>
+      <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="openPlateCalculator()">🧮 Plate Calculator</button>
 
       <div class="section-title">Import</div>
       <p class="text-dim" style="margin-bottom:12px;">Bring in your history from the Strong app: export your data there as CSV (Settings → Export Data), then import it here. Safe to run more than once — it won't create duplicates.</p>
