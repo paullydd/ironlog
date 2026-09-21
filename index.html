@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>IronLog</title>
+<meta name="description" content="Log your workouts, track weight and reps by routine, and watch your lifts progress over time." />
+<meta name="theme-color" content="#0d0f12" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="IronLog" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app">
+  <div id="view-root"></div>
+</div>
+
+<nav class="bottom-nav" id="bottom-nav">
+  <button class="nav-item" data-route="home"><span class="icon">🏠</span>Home</button>
+  <button class="nav-item" data-route="routines"><span class="icon">📋</span>Routines</button>
+  <button class="nav-item" data-route="history"><span class="icon">📈</span>History</button>
+  <button class="nav-item" data-route="settings"><span class="icon">⚙️</span>Settings</button>
+</nav>
+
+<div class="sheet-backdrop hidden" id="sheet-backdrop">
+  <div class="sheet" id="sheet-content"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<input type="file" id="import-file-input" class="file-input" accept="application/json" />
+
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
