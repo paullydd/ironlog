@@ -40,6 +40,7 @@ function defaultState() {
     exercises: [],
     routines: [],
     workouts: [],
+    bodyweightLogs: [],
     activeWorkout: null,
     settings: { unit: "lbs" },
   };
@@ -222,6 +223,26 @@ const Store = {
 
   deleteWorkout(id) {
     this.state.workouts = this.state.workouts.filter((w) => w.id !== id);
+    this.save();
+  },
+
+  workoutVolume(w) {
+    return w.exercises.reduce(
+      (sum, ex) => sum + ex.sets.reduce((s, set) => s + (Number(set.weight) || 0) * (Number(set.reps) || 0), 0),
+      0
+    );
+  },
+
+  // ----- Bodyweight -----
+  addBodyweightLog(weight, date) {
+    const entry = { id: uid(), weight, date: date || Date.now() };
+    this.state.bodyweightLogs.push(entry);
+    this.save();
+    return entry;
+  },
+
+  deleteBodyweightLog(id) {
+    this.state.bodyweightLogs = this.state.bodyweightLogs.filter((l) => l.id !== id);
     this.save();
   },
 

@@ -103,6 +103,9 @@ function render() {
     case "exercise":
       root.innerHTML = renderExerciseDetail(params[0]);
       break;
+    case "progress":
+      root.innerHTML = renderProgress();
+      break;
     case "settings":
       root.innerHTML = renderSettings();
       break;
@@ -377,16 +380,28 @@ function renderRoutineExerciseRows() {
     return `<p class="text-dim" style="margin-bottom:12px;">No exercises added yet.</p>`;
   }
   return s.exerciseIds
-    .map((exId) => {
+    .map((exId, i) => {
       const ex = Store.getExercise(exId);
       if (!ex) return "";
       return `
         <div class="routine-exercise-row">
           <span>${getExerciseIcon(ex.name, ex.muscleGroup)} ${escapeHtml(ex.name)}</span>
-          <button class="btn-icon" style="width:32px;height:32px;font-size:14px;" onclick="removeExerciseFromRoutine('${exId}')">✕</button>
+          <div class="reorder-controls">
+            <button class="btn-icon reorder-btn" ${i === 0 ? "disabled" : ""} onclick="moveRoutineExercise(${i}, -1)">▲</button>
+            <button class="btn-icon reorder-btn" ${i === s.exerciseIds.length - 1 ? "disabled" : ""} onclick="moveRoutineExercise(${i}, 1)">▼</button>
+            <button class="btn-icon" style="width:32px;height:32px;font-size:14px;" onclick="removeExerciseFromRoutine('${exId}')">✕</button>
+          </div>
         </div>`;
     })
     .join("");
+}
+
+function moveRoutineExercise(index, direction) {
+  const arr = routineEditState.exerciseIds;
+  const newIndex = index + direction;
+  if (newIndex < 0 || newIndex >= arr.length) return;
+  [arr[index], arr[newIndex]] = [arr[newIndex], arr[index]];
+  document.getElementById("routine-exercise-list").innerHTML = renderRoutineExerciseRows();
 }
 
 function removeExerciseFromRoutine(exId) {
@@ -947,16 +962,35 @@ function renderWorkoutDetail(id) {
     <div class="view">
       <div class="date">${formatDate(w.finishedAt)}</div>
       <h1 style="margin-bottom:4px;">${escapeHtml(w.routineName)}</h1>
-      <p class="text-dim" style="margin-bottom:18px;">${formatDuration(w.startedAt, w.finishedAt)}</p>`;
+      <p class="text-dim" style="margin-bottom:4px;">${formatDuration(w.startedAt, w.finishedAt)}</p>
+      <p class="text-dim" style="margin-bottom:18px;font-size:12px;">Tap +/− to fix a set — changes save automatically.</p>`;
 
   w.exercises.forEach((ex) => {
     const exMeta = Store.getExercise(ex.exerciseId);
     html += `
       <div class="card">
         <h3 class="card-tap" style="font-size:16px;font-weight:700;margin-bottom:6px;" onclick="navigate('#/exercise/${ex.exerciseId}')">${getExerciseIcon(ex.name, exMeta && exMeta.muscleGroup)} ${escapeHtml(ex.name)}</h3>
-        <div class="detail-set-list">
-          ${ex.sets.map((s, i) => `<div>Set ${i + 1}: ${s.weight}${unit()} × ${s.reps}${s.pr ? ` <span class="pr-badge">🏆 PR</span>` : ""}</div>`).join("")}
-        </div>
+        ${ex.sets
+          .map(
+            (s, i) => `
+          <div class="set-row" data-w="${w.id}" data-ex="${ex.exerciseId}" data-index="${i}">
+            <span class="set-num">${i + 1}</span>
+            <div class="stepper-group">
+              <button class="stepper-btn" onclick="adjustHistorySetField('${w.id}','${ex.exerciseId}',${i},'weight',-5)">−</button>
+              <input class="weight-input" type="number" inputmode="decimal" value="${s.weight}" oninput="updateHistorySetField('${w.id}','${ex.exerciseId}',${i},'weight',this.value)" />
+              <button class="stepper-btn" onclick="adjustHistorySetField('${w.id}','${ex.exerciseId}',${i},'weight',5)">+</button>
+            </div>
+            <div class="stepper-group">
+              <button class="stepper-btn" onclick="adjustHistorySetField('${w.id}','${ex.exerciseId}',${i},'reps',-1)">−</button>
+              <input class="reps-input" type="number" inputmode="numeric" value="${s.reps}" oninput="updateHistorySetField('${w.id}','${ex.exerciseId}',${i},'reps',this.value)" />
+              <button class="stepper-btn" onclick="adjustHistorySetField('${w.id}','${ex.exerciseId}',${i},'reps',1)">+</button>
+            </div>
+            <button class="set-remove" onclick="removeHistorySetRow('${w.id}','${ex.exerciseId}',${i})">✕</button>
+          </div>
+          ${s.pr ? `<div class="pr-tag">🏆 PR</div>` : ""}`
+          )
+          .join("")}
+        <button class="add-set-btn" onclick="addHistorySetRow('${w.id}','${ex.exerciseId}')">+ Add Set</button>
       </div>`;
   });
 
@@ -966,6 +1000,67 @@ function renderWorkoutDetail(id) {
       </div>
     </div>`;
   return html;
+}
+
+function refreshWorkoutDetailView(id) {
+  document.getElementById("view-root").innerHTML = renderWorkoutDetail(id);
+}
+
+function findHistorySet(workoutId, exerciseId, index) {
+  const w = Store.state.workouts.find((w) => w.id === workoutId);
+  const ex = w && w.exercises.find((e) => e.exerciseId === exerciseId);
+  return ex && ex.sets[index] ? { w, ex, set: ex.sets[index] } : null;
+}
+
+function updateHistorySetField(workoutId, exerciseId, index, field, value) {
+  const found = findHistorySet(workoutId, exerciseId, index);
+  if (!found) return;
+  found.set[field] = value === "" ? "" : Number(value);
+  delete found.set.pr;
+  Store.save();
+  removeStalePrTag(workoutId, exerciseId, index);
+}
+
+function adjustHistorySetField(workoutId, exerciseId, index, field, delta) {
+  const found = findHistorySet(workoutId, exerciseId, index);
+  if (!found) return;
+  const current = Number(found.set[field]) || 0;
+  const next = Math.max(0, current + delta);
+  found.set[field] = next;
+  delete found.set.pr;
+  Store.save();
+  const row = document.querySelector(`.set-row[data-w="${workoutId}"][data-ex="${exerciseId}"][data-index="${index}"]`);
+  const input = row && row.querySelector(field === "weight" ? ".weight-input" : ".reps-input");
+  if (input) input.value = next;
+  removeStalePrTag(workoutId, exerciseId, index);
+}
+
+function removeStalePrTag(workoutId, exerciseId, index) {
+  const row = document.querySelector(`.set-row[data-w="${workoutId}"][data-ex="${exerciseId}"][data-index="${index}"]`);
+  const next = row && row.nextElementSibling;
+  if (next && next.classList.contains("pr-tag")) next.remove();
+}
+
+function addHistorySetRow(workoutId, exerciseId) {
+  const w = Store.state.workouts.find((w) => w.id === workoutId);
+  const ex = w && w.exercises.find((e) => e.exerciseId === exerciseId);
+  if (!ex) return;
+  const prev = ex.sets[ex.sets.length - 1];
+  ex.sets.push({ weight: prev ? prev.weight : "", reps: prev ? prev.reps : "" });
+  Store.save();
+  refreshWorkoutDetailView(workoutId);
+}
+
+function removeHistorySetRow(workoutId, exerciseId, index) {
+  const w = Store.state.workouts.find((w) => w.id === workoutId);
+  const ex = w && w.exercises.find((e) => e.exerciseId === exerciseId);
+  if (!ex) return;
+  ex.sets.splice(index, 1);
+  if (ex.sets.length === 0) {
+    w.exercises = w.exercises.filter((e) => e.exerciseId !== exerciseId);
+  }
+  Store.save();
+  refreshWorkoutDetailView(workoutId);
 }
 
 function deleteWorkoutConfirm(id) {
@@ -1063,6 +1158,243 @@ function renderProgressChart(history) {
         <text x="${w - padR}" y="${h - 4}" font-size="10" fill="#666d77" text-anchor="end">${lastLabel}</text>
       </svg>
     </div>`;
+}
+
+// ---------- Progress / Stats ----------
+function formatVolume(v) {
+  if (v >= 1000000) return (v / 1000000).toFixed(1) + "M";
+  if (v >= 1000) return Math.round(v / 1000) + "k";
+  return Math.round(v).toString();
+}
+
+function getWeeklyVolume(weeksBack) {
+  const weeks = [];
+  const now = Date.now();
+  for (let i = weeksBack - 1; i >= 0; i--) {
+    const weekStart = startOfWeek(now - i * 7 * 86400000);
+    const weekEnd = weekStart + 7 * 86400000;
+    const volume = Store.state.workouts
+      .filter((w) => w.finishedAt >= weekStart && w.finishedAt < weekEnd)
+      .reduce((sum, w) => sum + Store.workoutVolume(w), 0);
+    weeks.push({ weekStart, volume });
+  }
+  return weeks;
+}
+
+function getVolumeByMuscleGroup(daysBack) {
+  const cutoff = Date.now() - daysBack * 86400000;
+  const totals = {};
+  Store.state.workouts
+    .filter((w) => w.finishedAt >= cutoff)
+    .forEach((w) => {
+      w.exercises.forEach((ex) => {
+        const exMeta = Store.getExercise(ex.exerciseId);
+        const group = (exMeta && exMeta.muscleGroup) || "Other";
+        const vol = ex.sets.reduce((s, set) => s + (Number(set.weight) || 0) * (Number(set.reps) || 0), 0);
+        totals[group] = (totals[group] || 0) + vol;
+      });
+    });
+  return totals;
+}
+
+function getWeekStreak() {
+  let streak = 0;
+  let weekStart = startOfWeek(Date.now());
+  const hasCurrent = Store.state.workouts.some((w) => w.finishedAt >= weekStart && w.finishedAt < weekStart + 7 * 86400000);
+  if (!hasCurrent) weekStart -= 7 * 86400000;
+  while (true) {
+    const weekEnd = weekStart + 7 * 86400000;
+    const has = Store.state.workouts.some((w) => w.finishedAt >= weekStart && w.finishedAt < weekEnd);
+    if (!has) break;
+    streak++;
+    weekStart -= 7 * 86400000;
+  }
+  return streak;
+}
+
+function renderProgress() {
+  const weekStreak = getWeekStreak();
+  const totalVolume = Store.state.workouts.reduce((s, w) => s + Store.workoutVolume(w), 0);
+
+  let html = `<div class="topbar"><h1>Stats</h1></div><div class="view">`;
+
+  html += `
+    <div class="stat-row">
+      <div class="stat"><span class="num">${weekStreak}</span><span class="label">Week Streak</span></div>
+      <div class="stat"><span class="num">${formatVolume(totalVolume)}</span><span class="label">Total Volume</span></div>
+    </div>`;
+
+  html += `<div class="section-title">Weekly Volume</div>`;
+  if (Store.state.workouts.length === 0) {
+    html += `<div class="empty-state"><span class="big-icon">📊</span><p>Finish some workouts and your trends will show up here.</p></div>`;
+  } else {
+    const weeks = getWeeklyVolume(12);
+    const maxVol = Math.max(...weeks.map((w) => w.volume), 1);
+    html += renderVolumeChart(weeks, maxVol);
+
+    html += `<div class="section-title">Last 30 Days by Muscle Group</div>`;
+    const groupTotals = getVolumeByMuscleGroup(30);
+    const groupEntries = Object.entries(groupTotals).sort((a, b) => b[1] - a[1]);
+    if (groupEntries.length === 0) {
+      html += `<p class="text-dim">No workouts in the last 30 days.</p>`;
+    } else {
+      const maxGroupVol = Math.max(...groupEntries.map(([, v]) => v), 1);
+      groupEntries.forEach(([group, vol]) => {
+        const pct = Math.round((vol / maxGroupVol) * 100);
+        html += `
+          <div class="volume-bar-row">
+            <div class="volume-bar-label">${MUSCLE_GROUP_ICONS[group] || "⚡"} ${escapeHtml(group)}</div>
+            <div class="volume-bar-track"><div class="volume-bar-fill" style="width:${pct}%"></div></div>
+            <div class="volume-bar-value">${formatVolume(vol)}</div>
+          </div>`;
+      });
+    }
+  }
+
+  html += `<div class="section-title">Body Weight</div>`;
+  html += renderBodyweightSection();
+
+  html += `</div>`;
+  return html;
+}
+
+function renderVolumeChart(weeks, maxVol) {
+  const w = 500,
+    h = 170;
+  const padL = 36,
+    padR = 10,
+    padT = 14,
+    padB = 26;
+  const plotW = w - padL - padR,
+    plotH = h - padT - padB;
+  const barGap = 5;
+  const barWidth = (plotW - barGap * (weeks.length - 1)) / weeks.length;
+
+  const bars = weeks
+    .map((wk, i) => {
+      const x = padL + i * (barWidth + barGap);
+      const barH = maxVol > 0 ? (wk.volume / maxVol) * plotH : 0;
+      const isCurrent = i === weeks.length - 1;
+      return `<rect x="${x.toFixed(1)}" y="${(padT + plotH - barH).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(barH, 0).toFixed(1)}" rx="3" fill="${isCurrent ? "#ff5722" : "#ff572299"}"><title>${formatDateShort(wk.weekStart)}: ${formatVolume(wk.volume)}${unit()}</title></rect>`;
+    })
+    .join("");
+
+  const gridLines = [0, 0.5, 1]
+    .map((f) => {
+      const gy = padT + plotH * (1 - f);
+      const val = Math.round(maxVol * f);
+      return `<line x1="${padL}" y1="${gy}" x2="${w - padR}" y2="${gy}" stroke="#2a2f36" stroke-width="1" /><text x="${padL - 6}" y="${gy + 4}" font-size="9" fill="#666d77" text-anchor="end">${formatVolume(val)}</text>`;
+    })
+    .join("");
+
+  const firstLabel = weeks.length ? formatDateShort(weeks[0].weekStart) : "";
+  const lastLabel = weeks.length ? "This wk" : "";
+
+  return `
+    <div class="chart-wrap">
+      <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" role="img" aria-label="Weekly training volume">
+        ${gridLines}
+        ${bars}
+        <text x="${padL}" y="${h - 4}" font-size="9" fill="#666d77">${firstLabel}</text>
+        <text x="${w - padR}" y="${h - 4}" font-size="9" fill="#666d77" text-anchor="end">${lastLabel}</text>
+      </svg>
+    </div>`;
+}
+
+// ---------- Body weight ----------
+function renderBodyweightSection() {
+  const logs = [...Store.state.bodyweightLogs].sort((a, b) => b.date - a.date);
+  let html = `<button class="btn btn-secondary" style="margin-bottom:12px;" onclick="openBodyweightSheet()">+ Log Body Weight</button>`;
+  if (logs.length === 0) {
+    html += `<p class="text-dim">No entries yet.</p>`;
+    return html;
+  }
+  if (logs.length >= 2) {
+    html += renderBodyweightChart([...logs].reverse());
+  }
+  const latest = logs[0];
+  html += `
+    <div class="stat-row" style="margin-bottom:10px;">
+      <div class="stat"><span class="num">${latest.weight}${unit()}</span><span class="label">Latest · ${formatDateShort(latest.date)}</span></div>
+    </div>`;
+  html += logs
+    .slice(0, 5)
+    .map(
+      (l) => `
+    <div class="routine-exercise-row">
+      <span>${formatDateShort(l.date)}: ${l.weight}${unit()}</span>
+      <button class="btn-icon" style="width:32px;height:32px;font-size:14px;" onclick="deleteBodyweightEntryConfirm('${l.id}')">✕</button>
+    </div>`
+    )
+    .join("");
+  return html;
+}
+
+function renderBodyweightChart(points) {
+  const w = 500,
+    h = 150;
+  const padL = 36,
+    padR = 12,
+    padT = 14,
+    padB = 22;
+  const plotW = w - padL - padR,
+    plotH = h - padT - padB;
+
+  const values = points.map((p) => p.weight);
+  const maxVal = Math.max(...values);
+  const minVal = Math.min(...values);
+  const range = maxVal - minVal || 1;
+
+  const x = (i) => padL + (points.length === 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
+  const y = (v) => padT + plotH - ((v - minVal) / range) * plotH;
+
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.weight).toFixed(1)}`).join(" ");
+  const dots = points
+    .map(
+      (p, i) =>
+        `<circle cx="${x(i).toFixed(1)}" cy="${y(p.weight).toFixed(1)}" r="4" fill="#ff5722" stroke="#0d0f12" stroke-width="2"><title>${formatDateShort(p.date)}: ${p.weight}${unit()}</title></circle>`
+    )
+    .join("");
+
+  return `
+    <div class="chart-wrap">
+      <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" role="img" aria-label="Body weight over time">
+        <path d="${linePath}" fill="none" stroke="#ff5722" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        ${dots}
+        <text x="${padL}" y="${h - 4}" font-size="9" fill="#666d77">${formatDateShort(points[0].date)}</text>
+        <text x="${w - padR}" y="${h - 4}" font-size="9" fill="#666d77" text-anchor="end">${formatDateShort(points[points.length - 1].date)}</text>
+      </svg>
+    </div>`;
+}
+
+function openBodyweightSheet() {
+  const html = `
+    <h2>Log Body Weight</h2>
+    <div class="field" style="margin-top:12px;">
+      <label>Weight (${unit()})</label>
+      <input type="number" inputmode="decimal" id="bw-input" placeholder="e.g. 180" />
+    </div>
+    <button class="btn btn-primary" onclick="saveBodyweightEntry()">Save</button>`;
+  openSheet(html);
+}
+
+function saveBodyweightEntry() {
+  const input = document.getElementById("bw-input");
+  const val = parseFloat(input.value);
+  if (!val || val <= 0) {
+    toast("Enter a valid weight");
+    return;
+  }
+  Store.addBodyweightLog(val);
+  closeSheet();
+  toast("Weight logged");
+  document.getElementById("view-root").innerHTML = renderProgress();
+}
+
+function deleteBodyweightEntryConfirm(id) {
+  if (!confirm("Delete this body weight entry?")) return;
+  Store.deleteBodyweightLog(id);
+  document.getElementById("view-root").innerHTML = renderProgress();
 }
 
 // ---------- Settings ----------
