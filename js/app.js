@@ -1365,6 +1365,14 @@ function renderProgress() {
       <div class="stat"><span class="num">${formatVolume(totalVolume)}</span><span class="label">Total Volume</span></div>
     </div>`;
 
+  const volumeComparison = getVolumeComparison(totalVolume, unit());
+  if (volumeComparison) {
+    html += `<p class="text-dim" style="text-align:center;font-size:13px;margin:-8px 0 16px;">${volumeComparison}</p>`;
+  }
+
+  html += `<div class="section-title">Badges</div>`;
+  html += renderBadgesSection();
+
   html += `<div class="section-title">Weekly Volume</div>`;
   if (Store.state.workouts.length === 0) {
     html += `<div class="empty-state"><span class="big-icon">📊</span><p>Finish some workouts and your trends will show up here.</p></div>`;
@@ -1440,6 +1448,47 @@ function renderVolumeChart(weeks, maxVol) {
         <text x="${w - padR}" y="${h - 4}" font-size="9" fill="#666d77" text-anchor="end">${lastLabel}</text>
       </svg>
     </div>`;
+}
+
+// ---------- Badges ----------
+function renderBadgesSection() {
+  const stats = computeBadgeStats();
+  const defs = getBadgeDefinitions();
+  const earnedCount = defs.filter((b) => b.check(stats)).length;
+
+  let html = `<p class="text-dim" style="margin-bottom:10px;">${earnedCount} / ${defs.length} earned</p>`;
+  html += `<div class="badge-grid">`;
+  defs.forEach((b) => {
+    const isEarned = b.check(stats);
+    html += `
+      <button class="badge-tile ${isEarned ? "badge-earned" : "badge-locked"}" onclick="showBadgeDetail('${b.id}')">
+        <span class="badge-icon">${isEarned ? b.icon : "🔒"}</span>
+        <span class="badge-name">${escapeHtml(b.name)}</span>
+      </button>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+function showBadgeDetail(id) {
+  const stats = computeBadgeStats();
+  const b = getBadgeDefinitions().find((x) => x.id === id);
+  if (!b) return;
+  const isEarned = b.check(stats);
+  let html = `<h2>${b.icon} ${escapeHtml(b.name)}</h2>`;
+  html += `<p class="text-dim" style="margin:10px 0 14px;">${escapeHtml(b.desc)}</p>`;
+  if (isEarned) {
+    html += `<p style="color:var(--success);font-weight:700;">✅ Earned</p>`;
+  } else if (b.goal) {
+    const current = Math.min(b.progress(stats), b.goal);
+    const pct = Math.round((current / b.goal) * 100);
+    html += `
+      <div class="volume-bar-track" style="margin-bottom:6px;"><div class="volume-bar-fill" style="width:${pct}%"></div></div>
+      <p class="text-dim" style="font-size:13px;">${formatVolume(current)} / ${formatVolume(b.goal)}</p>`;
+  } else {
+    html += `<p class="text-dim">🔒 Not yet earned</p>`;
+  }
+  openSheet(html);
 }
 
 // ---------- Body weight ----------

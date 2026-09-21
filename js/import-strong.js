@@ -168,22 +168,39 @@ function importStrongData(text) {
     }
   });
 
-  // Import workout history, skipping sessions already imported.
+  // Import workout history, skipping sessions already imported. Process in
+  // chronological order so PR badges can be tagged the same way live
+  // logging tags them (each set compared against the best seen so far).
   let workoutsImported = 0;
   let workoutsSkipped = 0;
-  sessions.forEach((session) => {
-    const already = Store.state.workouts.some(
-      (w) => w.startedAt === session.startedAt && w.routineName === session.routineName
-    );
-    if (already) {
-      workoutsSkipped++;
-      return;
-    }
-    const exercises = session.exerciseOrder.map((name) => ({
-      exerciseId: nameToExercise.get(name).id,
-      name,
-      sets: session.exercises.get(name),
-    }));
+  const runningBest = new Map(); // exerciseId -> best weight so far
+  const toImport = sessions
+    .filter((session) => {
+      const already = Store.state.workouts.some(
+        (w) => w.startedAt === session.startedAt && w.routineName === session.routineName
+      );
+      if (already) workoutsSkipped++;
+      return !already;
+    })
+    .sort((a, b) => a.startedAt - b.startedAt);
+
+  toImport.forEach((session) => {
+    const exercises = session.exerciseOrder.map((name) => {
+      const exerciseId = nameToExercise.get(name).id;
+      if (!runningBest.has(exerciseId)) {
+        const priorBest = Store.getBestSet(exerciseId);
+        runningBest.set(exerciseId, priorBest ? priorBest.weight : 0);
+      }
+      const sets = session.exercises.get(name).map((s) => ({ ...s }));
+      sets.forEach((s) => {
+        const weight = Number(s.weight) || 0;
+        if (weight > 0 && weight > runningBest.get(exerciseId)) {
+          s.pr = true;
+          runningBest.set(exerciseId, weight);
+        }
+      });
+      return { exerciseId, name, sets };
+    });
     const routine = Store.state.routines.find((r) => r.name === session.routineName);
     Store.state.workouts.push({
       id: uid(),

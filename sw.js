@@ -1,4 +1,4 @@
-const CACHE_NAME = "ironlog-v11";
+const CACHE_NAME = "ironlog-v13";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -7,6 +7,7 @@ const APP_SHELL = [
   "./js/exercise-library.js",
   "./js/exercise-icons.js",
   "./js/plates.js",
+  "./js/badges.js",
   "./js/import-strong.js",
   "./js/app.js",
   "./manifest.json",

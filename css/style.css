@@ -736,6 +736,56 @@ input, select {
   text-align: right;
 }
 
+/* ---- Badges ---- */
+.badge-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.badge-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 4px 10px;
+  transition: transform 0.08s ease;
+}
+
+.badge-tile:active {
+  transform: scale(0.94);
+}
+
+.badge-tile.badge-earned {
+  border-color: var(--accent);
+  background: rgba(255, 87, 34, 0.08);
+}
+
+.badge-tile.badge-locked {
+  opacity: 0.5;
+}
+
+.badge-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.badge-name {
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-dim);
+  line-height: 1.25;
+}
+
+.badge-tile.badge-earned .badge-name {
+  color: var(--text);
+}
+
 /* ---- Plate calculator ---- */
 .plate-viz {
   display: flex;
