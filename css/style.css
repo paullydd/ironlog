@@ -39,6 +39,7 @@ h1, h2, h3, p {
 
 button {
   font-family: inherit;
+  touch-action: manipulation;
 }
 
 input, select {
