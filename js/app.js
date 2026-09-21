@@ -136,6 +136,8 @@ function renderHome() {
   const thisWeek = workouts.filter((w) => w.finishedAt >= weekStart).length;
   const routines = Store.state.routines;
   const active = Store.state.activeWorkout;
+  const totalMs = workouts.reduce((sum, w) => sum + Math.max(0, w.finishedAt - w.startedAt), 0);
+  const totalHours = Math.round(totalMs / 3600000);
 
   let html = `<div class="topbar"><h1>IronLog</h1></div><div class="view">`;
 
@@ -156,7 +158,7 @@ function renderHome() {
     <div class="stat-row">
       <div class="stat"><span class="num">${totalWorkouts}</span><span class="label">Workouts</span></div>
       <div class="stat"><span class="num">${thisWeek}</span><span class="label">This Week</span></div>
-      <div class="stat"><span class="num">${routines.length}</span><span class="label">Routines</span></div>
+      <div class="stat"><span class="num">${totalHours}h</span><span class="label">Time Logged</span></div>
     </div>`;
 
   html += `<div class="section-title">Your Routines</div>`;
@@ -294,7 +296,7 @@ function renderRoutineExerciseRows() {
       if (!ex) return "";
       return `
         <div class="routine-exercise-row">
-          <span>${escapeHtml(ex.name)}</span>
+          <span>${getExerciseIcon(ex.name, ex.muscleGroup)} ${escapeHtml(ex.name)}</span>
           <button class="btn-icon" style="width:32px;height:32px;font-size:14px;" onclick="removeExerciseFromRoutine('${exId}')">✕</button>
         </div>`;
     })
@@ -408,7 +410,7 @@ function renderPickerListItems() {
         const checked = selected.has(it.key) ? "checked" : "";
         html += `
           <label class="picker-item">
-            <span class="name">${escapeHtml(it.name)}</span>
+            <span class="name">${getExerciseIcon(it.name, it.muscleGroup)} ${escapeHtml(it.name)}</span>
             <input type="checkbox" ${checked} onchange="togglePickerExercise('${it.key}', this.checked)" />
           </label>`;
       });
@@ -522,10 +524,11 @@ function renderExerciseBlock(ex) {
       </div>`;
   });
 
+  const exMeta = Store.getExercise(ex.exerciseId);
   return `
     <div class="exercise-block">
       <div class="row-between">
-        <h3>${escapeHtml(ex.name)}</h3>
+        <h3>${getExerciseIcon(ex.name, exMeta && exMeta.muscleGroup)} ${escapeHtml(ex.name)}</h3>
         <button class="btn-ghost btn-small" onclick="removeExerciseFromWorkout('${ex.exerciseId}')">Remove</button>
       </div>
       <p class="last-time">${lastText}</p>
@@ -603,7 +606,7 @@ function renderWorkoutPickerItems() {
         const already = it.id && currentIds.has(it.id);
         html += `
           <div class="picker-item card-tap" style="${already ? "opacity:0.4;" : ""}" onclick="${already ? "" : `addPickedExerciseToWorkout('${it.key}')`}">
-            <span class="name">${escapeHtml(it.name)}</span>
+            <span class="name">${getExerciseIcon(it.name, it.muscleGroup)} ${escapeHtml(it.name)}</span>
             <span class="muscle">${already ? "Added" : "+"}</span>
           </div>`;
       });
@@ -700,9 +703,10 @@ function renderWorkoutDetail(id) {
       <p class="text-dim" style="margin-bottom:18px;">${formatDuration(w.startedAt, w.finishedAt)}</p>`;
 
   w.exercises.forEach((ex) => {
+    const exMeta = Store.getExercise(ex.exerciseId);
     html += `
       <div class="card">
-        <h3 class="card-tap" style="font-size:16px;font-weight:700;margin-bottom:6px;" onclick="navigate('#/exercise/${ex.exerciseId}')">${escapeHtml(ex.name)}</h3>
+        <h3 class="card-tap" style="font-size:16px;font-weight:700;margin-bottom:6px;" onclick="navigate('#/exercise/${ex.exerciseId}')">${getExerciseIcon(ex.name, exMeta && exMeta.muscleGroup)} ${escapeHtml(ex.name)}</h3>
         <div class="detail-set-list">
           ${ex.sets.map((s, i) => `<div>Set ${i + 1}: ${s.weight}${unit()} × ${s.reps}</div>`).join("")}
         </div>
@@ -736,7 +740,7 @@ function renderExerciseDetail(id) {
   let html = `
     <div class="topbar"><button class="back" onclick="history.back()">‹ Back</button></div>
     <div class="view">
-      <h1 style="margin-bottom:2px;">${escapeHtml(ex.name)}</h1>
+      <h1 style="margin-bottom:2px;font-size:32px;">${getExerciseIcon(ex.name, ex.muscleGroup)} ${escapeHtml(ex.name)}</h1>
       <p class="text-dim" style="margin-bottom:18px;">${escapeHtml(ex.muscleGroup)}</p>
       <div class="pr-row">
         <div class="stat"><span class="num">${best ? best.weight : "–"}</span><span class="label">Best Weight (${unit()})</span></div>
