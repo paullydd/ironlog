@@ -751,11 +751,12 @@ function updateWorkoutTimer() {
 }
 
 // ---------- Rest timer ----------
-const restTimer = { endAt: null, interval: null, duration: 90 };
+const restTimer = { endAt: null, interval: null };
 
 function startRestTimer(seconds) {
   clearInterval(restTimer.interval);
-  restTimer.endAt = Date.now() + (seconds || restTimer.duration) * 1000;
+  const dur = seconds || Store.state.settings.restDuration || 90;
+  restTimer.endAt = Date.now() + dur * 1000;
   renderRestBar();
   restTimer.interval = setInterval(updateRestBar, 250);
 }
@@ -882,11 +883,22 @@ function renderWorkout() {
   }
 
   html += `<button class="btn btn-secondary" onclick="openExercisePickerForWorkout()">+ Add Exercise</button>`;
+  html += `
+    <div class="field" style="margin-top:16px;">
+      <label>Notes (optional)</label>
+      <textarea id="workout-notes-input" rows="2" placeholder="How did it feel?" oninput="updateWorkoutNotes(this.value)" style="width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:14px;font-family:inherit;resize:vertical;">${escapeHtml(w.notes || "")}</textarea>
+    </div>`;
   html += `</div>
     <div class="finish-bar">
       <button class="btn btn-primary" onclick="finishWorkoutConfirm()">Finish Workout</button>
     </div>`;
   return html;
+}
+
+function updateWorkoutNotes(value) {
+  if (!Store.state.activeWorkout) return;
+  Store.state.activeWorkout.notes = value;
+  Store.save();
 }
 
 function isCardioExercise(exerciseId) {
@@ -949,6 +961,7 @@ function renderExerciseBlock(ex) {
       <div class="row-between">
         <h3>${getExerciseIcon(ex.name, exMeta && exMeta.muscleGroup)} ${escapeHtml(ex.name)}</h3>
         <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn-ghost btn-small" onclick="openWarmupCalculatorForExercise('${ex.exerciseId}')">🔥</button>
           <button class="btn-ghost btn-small" onclick="openPlateCalculatorForExercise('${ex.exerciseId}')">🧮</button>
           <button class="btn-ghost btn-small" onclick="removeExerciseFromWorkout('${ex.exerciseId}')">Remove</button>
         </div>
@@ -1316,7 +1329,7 @@ function renderHistory() {
         <div class="card history-item card-tap" onclick="navigate('#/workout-detail/${w.id}')">
           <div style="flex:1">
             <div class="date">${formatDate(w.finishedAt)}</div>
-            <h3>${escapeHtml(w.routineName)}</h3>
+            <h3>${escapeHtml(w.routineName)}${w.notes ? " 📝" : ""}</h3>
             <div class="summary">${w.exercises.length} exercise${w.exercises.length === 1 ? "" : "s"} · ${totalSets} set${totalSets === 1 ? "" : "s"} · ${formatDuration(w.startedAt, w.finishedAt)}</div>
           </div>
           <span style="color:var(--text-faint);font-size:20px;">›</span>
@@ -1339,7 +1352,11 @@ function renderWorkoutDetail(id) {
       <div class="date">${formatDate(w.finishedAt)}</div>
       <h1 style="margin-bottom:4px;">${escapeHtml(w.routineName)}</h1>
       <p class="text-dim" style="margin-bottom:4px;">${formatDuration(w.startedAt, w.finishedAt)}</p>
-      <p class="text-dim" style="margin-bottom:18px;font-size:12px;">Tap +/− to fix a set — changes save automatically.</p>`;
+      <p class="text-dim" style="margin-bottom:18px;font-size:12px;">Tap +/− to fix a set — changes save automatically.</p>
+      <div class="field" style="margin-bottom:18px;">
+        <label>Notes</label>
+        <textarea rows="2" placeholder="Add a note…" oninput="updateHistoryNotes('${w.id}', this.value)" style="width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:14px;font-family:inherit;resize:vertical;">${escapeHtml(w.notes || "")}</textarea>
+      </div>`;
 
   w.exercises.forEach((ex) => {
     const exMeta = Store.getExercise(ex.exerciseId);
@@ -1386,11 +1403,63 @@ function renderWorkoutDetail(id) {
   });
 
   html += `
-      <div style="margin-top:16px;text-align:center;">
+      <div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <button class="btn-secondary btn-small" style="width:auto;" onclick="shareWorkout('${w.id}')">📤 Share</button>
         <button class="btn-danger" onclick="deleteWorkoutConfirm('${w.id}')">Delete Workout</button>
       </div>
     </div>`;
   return html;
+}
+
+function updateHistoryNotes(workoutId, value) {
+  const w = Store.state.workouts.find((w) => w.id === workoutId);
+  if (!w) return;
+  w.notes = value;
+  Store.save();
+}
+
+async function shareWorkout(workoutId) {
+  const w = Store.state.workouts.find((w) => w.id === workoutId);
+  if (!w) return;
+  const text = buildWorkoutShareText(w);
+  if (navigator.share) {
+    try {
+      await navigator.share({ text, title: w.routineName });
+    } catch (e) {
+      // User cancelled the share sheet — nothing to do.
+    }
+  } else if (navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Copied to clipboard");
+    } catch (e) {
+      toast("Couldn't copy — try again");
+    }
+  } else {
+    toast("Sharing isn't supported on this browser");
+  }
+}
+
+function buildWorkoutShareText(w) {
+  const lines = [];
+  lines.push(`💪 ${w.routineName} — ${formatDate(w.finishedAt)}`);
+  lines.push(`${formatDuration(w.startedAt, w.finishedAt)} · ${w.exercises.length} exercise${w.exercises.length === 1 ? "" : "s"}`);
+  if (w.notes) {
+    lines.push("");
+    lines.push(`📝 ${w.notes}`);
+  }
+  lines.push("");
+  w.exercises.forEach((ex) => {
+    const exMeta = Store.getExercise(ex.exerciseId);
+    const isCardio = isCardioExercise(ex.exerciseId);
+    lines.push(`${getExerciseIcon(ex.name, exMeta && exMeta.muscleGroup)} ${ex.name}`);
+    const setLine = ex.sets.map((s) => (isCardio ? formatCardioSet(s) : `${s.weight}${unit()}×${s.reps}`)).join(", ");
+    const hasPR = ex.sets.some((s) => s.pr);
+    lines.push(`  ${setLine}${hasPR ? " 🏆 PR" : ""}`);
+    lines.push("");
+  });
+  lines.push("Logged with IronLog");
+  return lines.join("\n");
 }
 
 function refreshWorkoutDetailView(id) {
@@ -2171,6 +2240,70 @@ function renderPlateBreakdown(u) {
   return html;
 }
 
+// ---------- Warm-up calculator ----------
+function openWarmupCalculator(prefillWeight) {
+  const u = unit();
+  window._warmupWorking = prefillWeight && prefillWeight > 0 ? prefillWeight : u === "kg" ? 60 : 135;
+  openSheet(renderWarmupSheet());
+}
+
+function openWarmupCalculatorForExercise(exerciseId) {
+  let prefill = null;
+  const active = Store.state.activeWorkout && Store.state.activeWorkout.exercises.find((e) => e.exerciseId === exerciseId);
+  if (active && active.sets.length > 0) {
+    const lastSet = active.sets[active.sets.length - 1];
+    if (lastSet.weight !== "" && lastSet.weight != null) prefill = Number(lastSet.weight);
+  }
+  if (prefill === null) {
+    const last = Store.getLastPerformance(exerciseId);
+    if (last && last.sets[0] && last.sets[0].weight) prefill = Number(last.sets[0].weight);
+  }
+  openWarmupCalculator(prefill);
+}
+
+function renderWarmupSheet() {
+  const u = unit();
+  return `
+    <h2>🔥 Warm-up Calculator</h2>
+    <p class="text-dim" style="margin-top:6px;margin-bottom:12px;">Ramp up to your working set without wasting energy.</p>
+    <div class="field">
+      <label>Working Weight (${u})</label>
+      <div class="stepper-group" style="max-width:220px;">
+        <button class="stepper-btn" style="width:34px;height:40px;" onclick="adjustWarmupWorking(-5)">−</button>
+        <input type="number" inputmode="decimal" id="warmup-working-input" value="${window._warmupWorking}" oninput="setWarmupWorking(this.value)" style="text-align:center;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-size:18px;width:100%;" />
+        <button class="stepper-btn" style="width:34px;height:40px;" onclick="adjustWarmupWorking(5)">+</button>
+      </div>
+    </div>
+    <div id="warmup-sets">${renderWarmupSetsList()}</div>`;
+}
+
+function renderWarmupSetsList() {
+  const u = unit();
+  const sets = computeWarmupSets(window._warmupWorking, u);
+  if (sets.length === 0) {
+    return `<p class="text-dim" style="text-align:center;margin:16px 0;">Working weight is light enough to skip a warm-up ramp.</p>`;
+  }
+  let html = `<div style="margin-top:14px;">`;
+  sets.forEach((s, i) => {
+    html += `<div class="routine-exercise-row"><span>Warm-up ${i + 1}</span><span class="text-dim">${s.weight}${u} × ${s.reps}</span></div>`;
+  });
+  html += `<div class="routine-exercise-row" style="border:1px solid var(--accent);"><span style="font-weight:700;">Working Set</span><span style="font-weight:700;color:var(--accent);">${window._warmupWorking}${u}</span></div>`;
+  html += `</div>`;
+  return html;
+}
+
+function setWarmupWorking(val) {
+  window._warmupWorking = val === "" ? 0 : Number(val);
+  document.getElementById("warmup-sets").innerHTML = renderWarmupSetsList();
+}
+
+function adjustWarmupWorking(delta) {
+  window._warmupWorking = Math.max(0, (Number(window._warmupWorking) || 0) + delta);
+  const input = document.getElementById("warmup-working-input");
+  if (input) input.value = window._warmupWorking;
+  document.getElementById("warmup-sets").innerHTML = renderWarmupSetsList();
+}
+
 // ---------- Settings ----------
 function renderSettings() {
   const u = unit();
@@ -2188,11 +2321,24 @@ function renderSettings() {
         </div>
       </div>
 
+      <div class="section-title">Rest Timer</div>
+      <div class="card">
+        <div class="row-between">
+          <span>Default rest</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <button class="stepper-btn" onclick="adjustRestDurationSetting(-15)">−</button>
+            <span style="font-weight:700;min-width:44px;text-align:center;">${Store.state.settings.restDuration || 90}s</span>
+            <button class="stepper-btn" onclick="adjustRestDurationSetting(15)">+</button>
+          </div>
+        </div>
+      </div>
+
       <div class="section-title">Planning</div>
       <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="navigate('#/schedule')">📅 Weekly Schedule</button>
 
       <div class="section-title">Tools</div>
       <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="openPlateCalculator()">🧮 Plate Calculator</button>
+      <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="openWarmupCalculator()">🔥 Warm-up Calculator</button>
 
       <div class="section-title">Import</div>
       <p class="text-dim" style="margin-bottom:12px;">Bring in your history from the Strong app: export your data there as CSV (Settings → Export Data), then import it here. Safe to run more than once — it won't create duplicates.</p>
@@ -2213,6 +2359,12 @@ function setUnit(u) {
   Store.setUnit(u);
   render();
   toast(`Units set to ${u}`);
+}
+
+function adjustRestDurationSetting(delta) {
+  const next = Math.max(15, (Store.state.settings.restDuration || 90) + delta);
+  Store.setRestDuration(next);
+  document.getElementById("view-root").innerHTML = renderSettings();
 }
 
 function exportData() {

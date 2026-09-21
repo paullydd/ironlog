@@ -44,7 +44,7 @@ function defaultState() {
     activeWorkout: null,
     // Keyed by JS Date.getDay() (0=Sun..6=Sat) -> a routine id, "rest", or absent (unset).
     schedule: {},
-    settings: { unit: "lbs" },
+    settings: { unit: "lbs", restDuration: 90 },
   };
 }
 
@@ -141,6 +141,7 @@ const Store = {
       startedAt: Date.now(),
       exercises,
       supersets: routine && routine.supersets ? routine.supersets.map((g) => [...g]) : [],
+      notes: "",
     };
     this.save();
     return this.state.activeWorkout;
@@ -319,6 +320,11 @@ const Store = {
 
   setUnit(unit) {
     this.state.settings.unit = unit;
+    this.save();
+  },
+
+  setRestDuration(seconds) {
+    this.state.settings.restDuration = seconds;
     this.save();
   },
 };
